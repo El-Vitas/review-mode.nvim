@@ -184,61 +184,56 @@ function M.edit_here(core)
   })
 end
 
--- Comentarios cuyo rango cubre `lnum`.
-local function all_at(core, rel, lnum)
-  local out = {}
+-- El comentario MÁS ESPECÍFICO que cubre `lnum` (el de rango más chico; ante
+-- empate, el que empieza más abajo). Así el peek muestra UN comentario, no todos.
+local function best_at(core, rel, lnum)
+  local best, best_span
   for _, c in ipairs(core.state.for_path(rel)) do
     local lo = math.min(c.lnum, c.end_lnum or c.lnum)
     local hi = math.max(c.lnum, c.end_lnum or c.lnum)
-    if lnum >= lo and lnum <= hi then out[#out + 1] = c end
+    if lnum >= lo and lnum <= hi then
+      local span = hi - lo
+      if not best or span < best_span or (span == best_span and lo > best.lnum) then
+        best, best_span = c, span
+      end
+    end
   end
-  return out
+  return best
 end
 
--- Ventana flotante persistente del peek (una sola a la vez).
-M._peek_win = nil
-M._peek_buf = nil
+-- Ventanas flotantes de peek abiertas (varias a la vez, independientes).
+M._peek_wins = {}
 
---- Cierra el flotante del peek si está abierto.
-function M.close_peek()
-  if M._peek_win and vim.api.nvim_win_is_valid(M._peek_win) then
-    pcall(vim.api.nvim_win_close, M._peek_win, true)
+--- Cierra TODOS los flotantes de peek abiertos.
+function M.close_all_peeks()
+  for _, w in ipairs(M._peek_wins) do
+    if vim.api.nvim_win_is_valid(w) then pcall(vim.api.nvim_win_close, w, true) end
   end
-  M._peek_win = nil
-  M._peek_buf = nil
+  M._peek_wins = {}
 end
 
---- Muestra en un flotante FIJO (bordeado, con fondo) el/los comentario(s)
---- completos de la línea actual. Queda anclado cerca del bloque y NO sigue al
---- cursor ni se mueve con el scroll: permanece abierto hasta que lo cierres.
---- Es un toggle: si ya hay uno abierto, lo cierra.
+--- Abre un flotante FIJO con el detalle del comentario de la línea actual.
+--- Cada llamada abre UNO NUEVO e independiente: no sigue al cursor ni al scroll
+--- (relative="editor"), queda en su posición y se mantiene abierto hasta que lo
+--- cierres (q/Esc dentro del flotante, o <leader>rP para cerrar todos). Si abrís
+--- otro más arriba, el anterior queda donde estaba.
 function M.peek_here(core)
-  if M._peek_win and vim.api.nvim_win_is_valid(M._peek_win) then
-    M.close_peek()
-    return
-  end
-
   local bufnr = vim.api.nvim_get_current_buf()
   local rel = core.git.rel_path(bufnr)
   if not rel then return end
-  local matches = all_at(core, rel, clamp(bufnr, vim.fn.line(".")))
-  if #matches == 0 then
+  local c = best_at(core, rel, clamp(bufnr, vim.fn.line(".")))
+  if not c then
     vim.notify("review.nvim: no hay comentario en esta línea", vim.log.levels.INFO)
     return
   end
 
-  local lines = {}
-  for i, c in ipairs(matches) do
-    if i > 1 then lines[#lines + 1] = "───────────────" end
-    local range = (c.end_lnum and c.end_lnum ~= c.lnum)
-        and string.format("L%d-%d", c.lnum, c.end_lnum)
-        or ("L" .. c.lnum)
-    local status = c.resolved and "✓ resuelto" or "💬 abierto"
-    lines[#lines + 1] = string.format("%s · `%s` · _%s_", status, range, c.author or "user")
-    lines[#lines + 1] = ""
-    for _, tl in ipairs(vim.split(c.text or "", "\n", { plain = true })) do
-      lines[#lines + 1] = tl
-    end
+  local range = (c.end_lnum and c.end_lnum ~= c.lnum)
+      and string.format("L%d-%d", c.lnum, c.end_lnum)
+      or ("L" .. c.lnum)
+  local status = c.resolved and "✓ resuelto" or "💬 abierto"
+  local lines = { string.format("%s · `%s` · _%s_", status, range, c.author or "user"), "" }
+  for _, tl in ipairs(vim.split(c.text or "", "\n", { plain = true })) do
+    lines[#lines + 1] = tl
   end
 
   local buf = vim.api.nvim_create_buf(false, true)
@@ -247,19 +242,19 @@ function M.peek_here(core)
   vim.bo[buf].modifiable = false
   vim.bo[buf].bufhidden = "wipe"
 
-  local width = 20
+  local width = 40
   for _, l in ipairs(lines) do width = math.max(width, vim.fn.strdisplaywidth(l)) end
-  width = math.min(width + 1, 80)
-  local height = math.min(#lines, 15)
+  width = math.min(width + 2, 90)
+  local height = math.min(math.max(#lines, 3), 20)
 
-  -- Posición FIJA en pantalla, cerca del bloque: tomamos la posición de pantalla
-  -- de la primera línea del comentario en el momento de abrir. relative="editor"
-  -- => no se mueve con el scroll ni sigue al cursor.
-  local first = math.min(matches[1].lnum, matches[1].end_lnum or matches[1].lnum)
+  -- Posición FIJA en pantalla, cerca del bloque (posición de pantalla de la
+  -- primera línea al momento de abrir). relative="editor" => no sigue al cursor
+  -- ni se mueve con el scroll.
+  local first = math.min(c.lnum, c.end_lnum or c.lnum)
   local sp = vim.fn.screenpos(vim.api.nvim_get_current_win(), first, 1)
   local row = (sp.row and sp.row > 0) and sp.row or math.floor((vim.o.lines - height) / 2)
   local col = (sp.col and sp.col > 0) and (sp.col - 1) or 4
-  if row + height + 2 > vim.o.lines then row = math.max(sp.row - height - 2, 0) end
+  if row + height + 2 > vim.o.lines then row = math.max((sp.row or 0) - height - 2, 0) end
   if col + width + 2 > vim.o.columns then col = math.max(vim.o.columns - width - 2, 0) end
 
   local win = vim.api.nvim_open_win(buf, false, {
@@ -270,20 +265,17 @@ function M.peek_here(core)
     height = height,
     style = "minimal",
     border = "rounded",
-    title = " Comentario ",
+    title = " Comentario " .. range .. " ",
     title_pos = "left",
     noautocmd = true,
   })
-  -- Fondo OPACO propio: si el tema tiene NormalFloat transparente, el flotante
-  -- se ve "hueco". Forzamos un fondo sólido y sin blend.
   vim.wo[win].winhighlight = "Normal:ReviewPeekNormal,FloatBorder:ReviewPeekBorder,FloatTitle:ReviewPeekTitle"
   vim.wo[win].winblend = 0
-  M._peek_win = win
-  M._peek_buf = buf
+  table.insert(M._peek_wins, win)
 
-  -- Si el usuario entra al flotante, q/Esc lo cierran.
-  vim.keymap.set("n", "q", M.close_peek, { buffer = buf, nowait = true })
-  vim.keymap.set("n", "<Esc>", M.close_peek, { buffer = buf, nowait = true })
+  -- Cerrar ESTE flotante con q/Esc si el usuario entra en él.
+  vim.keymap.set("n", "q", function() pcall(vim.api.nvim_win_close, win, true) end, { buffer = buf, nowait = true })
+  vim.keymap.set("n", "<Esc>", function() pcall(vim.api.nvim_win_close, win, true) end, { buffer = buf, nowait = true })
 end
 
 function M.delete_here(core)

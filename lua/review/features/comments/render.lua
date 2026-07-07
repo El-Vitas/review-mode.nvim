@@ -30,7 +30,7 @@ function M.render(core, bufnr)
     -- completo se lee en el peek flotante (<leader>rp), no arrastrando una tira
     -- larga al final de la línea.
     text = text:gsub("[\r\n]+", " ")
-    if #text > 28 then text = text:sub(1, 25) .. "…" end
+    if #text > 46 then text = text:sub(1, 44) .. "…" end
 
     local resolved = c.resolved
     local line_hl = resolved and "ReviewCommentLineResolved" or "ReviewCommentLine"
