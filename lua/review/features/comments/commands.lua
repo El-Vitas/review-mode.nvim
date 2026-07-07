@@ -1,24 +1,56 @@
 local mode = require("review.features.comments.mode")
+local render = require("review.features.comments.render")
 
 local M = {}
 
-local function open_quickfix(core)
-  -- Ruta ABSOLUTA: la quickfix resuelve `filename` contra el cwd, pero
-  -- `c.path` es relativo a la raíz del repo. Sin esto, abrir nvim desde un
-  -- subdirectorio abriría el archivo equivocado.
+-- Arma los items de quickfix a partir de una lista de comentarios.
+-- `filename` va ABSOLUTO (root .. path): la quickfix resuelve contra el cwd,
+-- pero c.path es relativo a la raíz del repo.
+local function to_qf_items(core, comments)
   local root = core.git.root() or ""
   local base = (root ~= "") and (root .. "/") or ""
   local items = {}
-  for _, c in ipairs(core.state.all()) do
+  for _, c in ipairs(comments) do
     local prefix = c.resolved and "[✓] " or ""
+    local text = (c.text or ""):gsub("[\r\n]+", " ")
     table.insert(items, {
       filename = base .. c.path,
       lnum = c.lnum,
-      text = prefix .. (c.text or ""),
+      col = 1,
+      text = prefix .. text,
     })
   end
-  vim.fn.setqflist(items)
+  return items
+end
+
+-- Ordena por archivo y luego por línea, para una lista prolija.
+local function sorted(comments)
+  local list = vim.deepcopy(comments)
+  table.sort(list, function(a, b)
+    if a.path ~= b.path then return a.path < b.path end
+    return (a.lnum or 0) < (b.lnum or 0)
+  end)
+  return list
+end
+
+-- Abre la quickfix con Enter/click para saltar al archivo:línea (nativo).
+local function open_list(core, comments, title)
+  local items = to_qf_items(core, sorted(comments))
+  if #items == 0 then
+    vim.notify("review.nvim: no hay comentarios" .. (title and (" en " .. title) or ""), vim.log.levels.INFO)
+    return
+  end
+  vim.fn.setqflist({}, " ", { title = "review.nvim" .. (title and (": " .. title) or ""), items = items })
   vim.cmd("copen")
+end
+
+-- Re-renderiza los comentarios en todos los buffers cargados (tras un toggle).
+local function rerender_all(core)
+  for _, b in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(b) then
+      pcall(render.render, core, b)
+    end
+  end
 end
 
 function M.setup(core, opts)
@@ -26,22 +58,40 @@ function M.setup(core, opts)
   local leader = opts.leader or "<leader>r"
 
   local function edit() mode.edit_here(core) end
-  local function list() open_quickfix(core) end
+  local function list_all() open_list(core, core.state.all(), nil) end
+  local function list_file()
+    local rel = core.git.rel_path(0)
+    if not rel then
+      vim.notify("review.nvim: el buffer actual no pertenece al repo", vim.log.levels.WARN)
+      return
+    end
+    open_list(core, core.state.for_path(rel), rel)
+  end
+  local function toggle_hidden()
+    render.hidden = not render.hidden
+    rerender_all(core)
+    vim.notify("review.nvim: comentarios " .. (render.hidden and "ocultos" or "visibles"), vim.log.levels.INFO)
+  end
 
-  -- Comando largo + alias corto (ambos comandos REALES). La versión en
-  -- minúscula (`rcm`/`rl`) la resuelve `plugin/review.lua` (core Task 7)
-  -- vía cnoreabbrev apuntando a estos comandos reales.
-  -- :ReviewCommentMode/:Rcm = editar el comentario de la línea actual.
-  vim.api.nvim_create_user_command("ReviewCommentMode", edit, {})
+  -- Comandos largos + alias cortos (todos comandos REALES; las minúsculas las
+  -- resuelve plugin/review.lua vía cnoreabbrev).
+  vim.api.nvim_create_user_command("ReviewCommentMode", edit, {})   -- editar comentario de la línea
   vim.api.nvim_create_user_command("Rcm", edit, {})
-  vim.api.nvim_create_user_command("ReviewList", list, {})
-  vim.api.nvim_create_user_command("Rl", list, {})
+  vim.api.nvim_create_user_command("ReviewList", list_all, {})      -- listar todos (global)
+  vim.api.nvim_create_user_command("Rl", list_all, {})
+  vim.api.nvim_create_user_command("ReviewListFile", list_file, {}) -- listar del archivo actual
+  vim.api.nvim_create_user_command("Rlf", list_file, {})
+  vim.api.nvim_create_user_command("ReviewToggle", toggle_hidden, {}) -- ocultar/mostrar
+  vim.api.nvim_create_user_command("Rt", toggle_hidden, {})
 
   vim.keymap.set("n", leader .. "r", function() mode.edit_here(core) end, { desc = "Review: editar comentario de la línea" })
-  vim.keymap.set("n", leader .. "c", function() mode.add_here(core, {}) end, { desc = "Review: add comment" })
-  vim.keymap.set("v", leader .. "c", function() mode.add_here(core, {}) end, { desc = "Review: add comment (range)" })
-  vim.keymap.set("n", leader .. "d", function() mode.delete_here(core) end, { desc = "Review: delete comment here" })
-  vim.keymap.set("n", leader .. "x", function() mode.resolve_here(core) end, { desc = "Review: resolve comment here" })
+  vim.keymap.set("n", leader .. "c", function() mode.add_here(core, {}) end, { desc = "Review: comentar línea" })
+  vim.keymap.set("v", leader .. "c", function() mode.add_here(core, {}) end, { desc = "Review: comentar rango" })
+  vim.keymap.set("n", leader .. "d", function() mode.delete_here(core) end, { desc = "Review: borrar comentario" })
+  vim.keymap.set("n", leader .. "x", function() mode.resolve_here(core) end, { desc = "Review: resolver comentario" })
+  vim.keymap.set("n", leader .. "l", list_all, { desc = "Review: listar comentarios (global)" })
+  vim.keymap.set("n", leader .. "L", list_file, { desc = "Review: listar comentarios del archivo" })
+  vim.keymap.set("n", leader .. "h", toggle_hidden, { desc = "Review: ocultar/mostrar comentarios" })
 end
 
 return M

@@ -1,5 +1,9 @@
 local M = {}
 
+-- Visibilidad global de los comentarios (toggle shown/hidden). Cuando está en
+-- true, `render` limpia y no pinta nada.
+M.hidden = false
+
 local function clamp(bufnr, lnum)
   local last = vim.api.nvim_buf_line_count(bufnr)
   if last < 1 then return 1 end
@@ -13,6 +17,7 @@ function M.render(core, bufnr)
   if not rel then return end
 
   vim.api.nvim_buf_clear_namespace(bufnr, core.ns.comments, 0, -1)
+  if M.hidden then return end
 
   local comments = core.state.for_path(rel)
   for _, c in ipairs(comments) do
@@ -21,22 +26,39 @@ function M.render(core, bufnr)
     if end_lnum < lnum then lnum, end_lnum = end_lnum, lnum end
     local row = lnum - 1
     local text = c.text or ""
+    -- Preview de una línea (colapsa saltos) para el texto al final de la línea.
+    text = text:gsub("[\r\n]+", " ")
     if #text > 60 then text = text:sub(1, 57) .. "..." end
 
-    -- hl distinto según estado: resueltos atenuados (Comment), abiertos DiagnosticInfo.
-    local prefix = c.resolved and "✓ " or "💬 "
-    local hl = c.resolved and "Comment" or "DiagnosticInfo"
+    local resolved = c.resolved
+    local line_hl = resolved and "ReviewCommentLineResolved" or "ReviewCommentLine"
+    local sign_hl = resolved and "ReviewCommentSignResolved" or "ReviewCommentSign"
+    local text_hl = resolved and "Comment" or "DiagnosticInfo"
+    local head_sign = resolved and "✓ " or "💬"
+    local prefix = resolved and "✓ " or "💬 "
 
-    -- `end_row` ancla el FIN del rango además del inicio, para que los
-    -- comentarios multi-línea conserven su rango cuando el código se mueve.
+    -- Extmark ANCLA (primera línea): lleva end_row para rastrear el rango al
+    -- editar, el signo, el resaltado de línea y el preview al final. Es el que
+    -- usa sync_positions. Para un comentario de una sola línea, es el único.
     local id = vim.api.nvim_buf_set_extmark(bufnr, core.ns.comments, row, 0, {
       end_row = end_lnum - 1,
-      sign_text = "💬",
-      sign_hl_group = hl,
-      virt_text = { { prefix .. text, hl } },
+      sign_text = head_sign,
+      sign_hl_group = sign_hl,
+      line_hl_group = line_hl,
+      virt_text = { { prefix .. text, text_hl } },
       virt_text_pos = "eol",
     })
     c._extmark_id = id
+
+    -- Líneas de continuación del rango: resaltar el fondo + signo de "borde"
+    -- en la columna de signos, para que se vea qué tramo abarca el comentario.
+    for r = row + 1, end_lnum - 1 do
+      vim.api.nvim_buf_set_extmark(bufnr, core.ns.comments, r, 0, {
+        sign_text = "│ ",
+        sign_hl_group = sign_hl,
+        line_hl_group = line_hl,
+      })
+    end
   end
 end
 
