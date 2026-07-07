@@ -58,6 +58,25 @@ function M.update(id, fields)
   return true
 end
 
+--- Comentarios que responden a `id` (reply_to == id), en orden de inserción.
+function M.replies(id)
+  local out = {}
+  for _, c in ipairs(list) do
+    if c.reply_to == id then out[#out + 1] = c end
+  end
+  return out
+end
+
+--- Hilo completo de un comentario: el padre primero, luego sus respuestas.
+--- Lista vacía si `id` no existe.
+function M.thread(id)
+  local parent = M.by_id(id)
+  if not parent then return {} end
+  local out = { parent }
+  for _, c in ipairs(M.replies(id)) do out[#out + 1] = c end
+  return out
+end
+
 function M.load()
   list = store.load().comments or {}
   return list
