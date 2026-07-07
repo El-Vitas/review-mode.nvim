@@ -33,6 +33,20 @@ function M.setup(core, opts, views_mod)
   vim.api.nvim_create_user_command("ReviewView", run, ucmd_opts)
   vim.api.nvim_create_user_command("Rv", run, vim.deepcopy(ucmd_opts))
 
+  -- Comandos directos por modo (sin argumento), más cómodos que `:Rv split`.
+  -- Alias cortos Rvn/Rvi/Rvs; las minúsculas rvn/rvi/rvs las resuelve
+  -- plugin/review.lua vía cnoreabbrev.
+  local function set_mode(mode)
+    return function()
+      views_mod.set(core, vim.api.nvim_get_current_buf(), mode)
+    end
+  end
+  local direct = { normal = "Normal", inline = "Inline", split = "Split" }
+  for mode, suffix in pairs(direct) do
+    vim.api.nvim_create_user_command("Review" .. suffix, set_mode(mode), {})
+    vim.api.nvim_create_user_command("Rv" .. suffix:sub(1, 1):lower(), set_mode(mode), {})
+  end
+
   vim.keymap.set("n", leader .. "v", function()
     local bufnr = vim.api.nvim_get_current_buf()
     local current = views_mod.mode[bufnr] or "normal"

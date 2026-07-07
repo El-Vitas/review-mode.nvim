@@ -6,5 +6,8 @@ vim.cmd([[
   cnoreabbrev ryf Ryf
   cnoreabbrev rya Rya
   cnoreabbrev rv  Rv
+  cnoreabbrev rvn Rvn
+  cnoreabbrev rvi Rvi
+  cnoreabbrev rvs Rvs
   cnoreabbrev rs  Rs
 ]])
