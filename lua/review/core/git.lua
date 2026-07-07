@@ -2,6 +2,17 @@ local store = require("review.core.store")
 
 local M = {}
 
+-- Cache de la raíz del repo por directorio. `git rev-parse` es un subproceso y
+-- root()/rel_path() se llaman muy seguido (render en BufEnter, sync de vistas,
+-- etc.). La raíz de un directorio es estable, así que la cacheamos: string =
+-- raíz encontrada, false = ese dir no está en un repo (usar fallback por cwd).
+local root_cache = {}
+
+--- Limpia el cache de raíces (por si cambió la estructura de repos).
+function M.clear_cache()
+  root_cache = {}
+end
+
 --- Raíz del repo. Si se pasa `bufnr`, la resuelve desde el DIRECTORIO DEL
 --- ARCHIVO de ese buffer (`git -C <dir> rev-parse`), de modo que funcione
 --- aunque el cwd de Neovim esté en otro lado (caso típico: abrir nvim en ~ y
@@ -15,10 +26,13 @@ function M.root(bufnr)
     local full = vim.api.nvim_buf_get_name(bufnr)
     if full ~= "" then
       local dir = vim.fn.fnamemodify(full, ":h")
-      local out = vim.fn.systemlist({ "git", "-C", dir, "rev-parse", "--show-toplevel" })
-      if vim.v.shell_error == 0 and out[1] and out[1] ~= "" then
-        return out[1]
+      local cached = root_cache[dir]
+      if cached == nil then
+        local out = vim.fn.systemlist({ "git", "-C", dir, "rev-parse", "--show-toplevel" })
+        cached = (vim.v.shell_error == 0 and out[1] and out[1] ~= "") and out[1] or false
+        root_cache[dir] = cached
       end
+      if cached then return cached end
     end
   end
   return store.root_fn()

@@ -117,6 +117,9 @@ end
 --- Sincroniza el panel HEAD con el archivo de la ventana ACTUAL (la de edición).
 --- Crea la sesión si hace falta; la cierra si el archivo no tiene HEAD o no está
 --- en el repo (queda en una sola columna).
+local WH_DEL = "DiffChange:ReviewDiffChange,DiffText:ReviewDiffDelText,DiffAdd:ReviewDiffDelLine,DiffDelete:ReviewDiffFiller"
+local WH_ADD = "DiffChange:ReviewDiffChange,DiffText:ReviewDiffAddText,DiffAdd:ReviewDiffAddLine,DiffDelete:ReviewDiffFiller"
+
 function M.sync(core)
   local cur = vim.api.nvim_get_current_win()
   local s = M._session
@@ -128,33 +131,42 @@ function M.sync(core)
   local rel = core.git.rel_path(buf)
   if not rel then M.teardown(); return end
 
-  -- HEAD (cacheado en la sesión mientras sea el mismo archivo, para no correr
-  -- git en cada edición).
-  local head
-  if s and s.rel == rel and s.head then
-    head = s.head
-  else
-    head = core.git.head_content(rel, core.git.root(buf))
+  -- REUSO del MISMO archivo: ya está diffeado. NO re-diffear (el diff nativo se
+  -- actualiza solo al editar; re-diffear sobre las mismas ventanas lo corrompe
+  -- —marca todo como cambiado— y además es lento). Solo cerramos si el archivo
+  -- volvió a quedar idéntico a HEAD. Barato: sin git, sin re-diff.
+  if s and s.rel == rel and s.head
+      and s.left_win and vim.api.nvim_win_is_valid(s.left_win)
+      and s.main_win and vim.api.nvim_win_is_valid(s.main_win) then
+    -- Barato: si el buffer no cambió desde el último sync, no hacer nada.
+    local tick = vim.api.nvim_buf_get_changedtick(buf)
+    if tick ~= s.tick then
+      s.tick = tick
+      if same_lines(s.head, vim.api.nvim_buf_get_lines(buf, 0, -1, false)) then
+        M.teardown()
+      end
+    end
+    return
   end
+
+  -- Archivo nuevo o sin sesión válida: preparar setup FRESCO.
+  local head = core.git.head_content(rel, core.git.root(buf))
   if not head then M.teardown(); return end -- sin HEAD (archivo nuevo): una columna
+  if same_lines(head, vim.api.nvim_buf_get_lines(buf, 0, -1, false)) then
+    M.teardown(); return -- sin cambios: una columna
+  end
 
-  -- Sin diferencias vs HEAD -> una sola columna (no abrir 2 columnas).
-  local blines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  if same_lines(head, blines) then M.teardown(); return end
-
+  M.teardown() -- cerrar sesión previa (de otro archivo) si la hubiera
   ensure_diffopt()
 
-  if not (s and s.left_win and vim.api.nvim_win_is_valid(s.left_win)) then
-    s = create_pane(cur)
-    M._session = s
-  else
-    s.main_win = cur
-  end
-  s.rel = rel
-  s.head = head
+  local sess = create_pane(cur)
+  sess.rel = rel
+  sess.head = head
+  sess.tick = vim.api.nvim_buf_get_changedtick(buf)
+  M._session = sess
 
-  -- Rellenar el scratch con el HEAD del archivo actual.
-  local scratch = s.buf
+  -- Scratch = contenido HEAD.
+  local scratch = sess.buf
   vim.bo[scratch].modifiable = true
   vim.api.nvim_buf_set_lines(scratch, 0, -1, false, head)
   vim.bo[scratch].modifiable = false
@@ -162,27 +174,17 @@ function M.sync(core)
   local ft = vim.bo[buf].filetype
   if ft and ft ~= "" then vim.bo[scratch].filetype = ft end
   pcall(vim.api.nvim_buf_set_name, scratch, "review://head/" .. rel)
-  -- Mismo resaltado que la derecha: arrancar treesitter en el panel HEAD (sin
-  -- esto se ve más apagado/con otros colores).
-  pcall(vim.treesitter.start, scratch)
+  pcall(vim.treesitter.start, scratch) -- mismo resaltado que la derecha
 
-  -- Diff en ambas ventanas + forzar recálculo. Hacemos diffoff ANTES para que
-  -- al reusar el buffer HEAD entre archivos no quede estado viejo del diff
-  -- (síntoma: "todo cambiado" aunque solo cambiaron unas líneas).
-  pcall(vim.api.nvim_win_call, s.left_win, function() vim.cmd("diffoff") end)
-  pcall(vim.api.nvim_win_call, cur, function() vim.cmd("diffoff") end)
-  pcall(vim.api.nvim_win_call, s.left_win, function() vim.cmd("diffthis") end)
+  -- Diff nativo (scratch fresco). diffoff! limpia CUALQUIER estado de diff
+  -- residual del tab (si no, tras un switch el diff desalinea y marca todo).
+  pcall(vim.api.nvim_win_call, cur, function() vim.cmd("diffoff!") end)
+  pcall(vim.api.nvim_win_call, sess.left_win, function() vim.cmd("diffthis") end)
   pcall(vim.api.nvim_win_call, cur, function() vim.cmd("diffthis") end)
-  -- Sin folds: mostrar TODAS las líneas (no compactar lo que no cambió).
-  open_all_folds(s.left_win)
+  open_all_folds(sess.left_win)
   open_all_folds(cur)
-  -- Colores por columna. Línea modificada = naranja suave (igual en ambas); el
-  -- TEXTO exacto que cambió = rojo (izq, quitado) / verde (der, agregado); línea
-  -- única de la columna = roja (izq, borrada) / verde (der, agregada).
-  local del = "DiffChange:ReviewDiffChange,DiffText:ReviewDiffDelText,DiffAdd:ReviewDiffDelLine,DiffDelete:ReviewDiffFiller"
-  local add = "DiffChange:ReviewDiffChange,DiffText:ReviewDiffAddText,DiffAdd:ReviewDiffAddLine,DiffDelete:ReviewDiffFiller"
-  pcall(function() vim.wo[s.left_win].winhighlight = del end)
-  pcall(function() vim.wo[cur].winhighlight = add end)
+  pcall(function() vim.wo[sess.left_win].winhighlight = WH_DEL end)
+  pcall(function() vim.wo[cur].winhighlight = WH_ADD end)
   vim.api.nvim_set_current_win(cur)
   pcall(vim.cmd, "diffupdate")
 end

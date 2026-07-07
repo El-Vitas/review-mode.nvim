@@ -2,6 +2,27 @@ local diff = require("review.features.views.diff")
 
 local M = {}
 
+-- Cache del contenido HEAD por buffer: `git show HEAD` es un subproceso caro y
+-- render() se llama en CADA tecla (TextChangedI). El HEAD no cambia mientras
+-- editás, así que lo corremos una sola vez por buffer. Se invalida al recargar
+-- el archivo (BufReadPost, ver init.lua) o con M.invalidate(bufnr).
+M._head_cache = {}
+
+function M.invalidate(bufnr)
+  if bufnr then M._head_cache[bufnr] = nil else M._head_cache = {} end
+end
+
+local function head_for(core, bufnr, relpath, root)
+  local c = M._head_cache[bufnr]
+  if c ~= nil then
+    if c == false then return nil end
+    return c
+  end
+  local head = core.git.head_content(relpath, root)
+  M._head_cache[bufnr] = head or false
+  return head
+end
+
 function M.clear(core, bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, core.ns.views, 0, -1)
 end
@@ -26,7 +47,7 @@ function M.render(core, bufnr)
   local root = core.git.root(bufnr)
   if not relpath or not root then return end
 
-  local head_lines = core.git.head_content(relpath, root)
+  local head_lines = head_for(core, bufnr, relpath, root)
   if not head_lines then return end
 
   local buf_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)

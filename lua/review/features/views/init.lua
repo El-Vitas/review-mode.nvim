@@ -66,6 +66,12 @@ function M.setup(core, opts)
   ensure_diff_hl()
   vim.api.nvim_create_autocmd("ColorScheme", { group = group, callback = ensure_diff_hl })
 
+  -- Si el archivo se recarga desde disco, invalidar el cache del HEAD de inline.
+  vim.api.nvim_create_autocmd("BufReadPost", {
+    group = group,
+    callback = function(a) inline.invalidate(a.buf) end,
+  })
+
   -- Al entrar a un archivo, re-aplicar el modo global (global como VSCode).
   vim.api.nvim_create_autocmd({ "BufWinEnter", "BufEnter" }, {
     group = group,
@@ -93,7 +99,9 @@ function M.setup(core, opts)
       if vim.bo[a.buf].buftype ~= "" then return end
       if M.mode == "inline" then
         pcall(inline.render, core, a.buf)
-      elseif M.mode == "split" then
+      elseif M.mode == "split" and a.event == "TextChanged" then
+        -- Solo al TERMINAR un cambio (no por cada tecla en insert): el diff
+        -- nativo ya se actualiza live; esto solo detecta si volvió a HEAD.
         pcall(apply_current, core)
       end
     end,
