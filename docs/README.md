@@ -14,6 +14,7 @@ sigue siendo el archivo real y editable.
 - [highlights.md](./highlights.md) — grupos de highlight (colores) override-ables.
 - [performance.md](./performance.md) — caches y optimizaciones (RAM/velocidad).
 - [decisions.md](./decisions.md) — registro de TODAS las decisiones tomadas y su porqué.
+- [roadmap.md](./roadmap.md) — próximos pasos: diseño del agente (edición en vivo, conflictos, threading) y limpieza del nvim.
 - [plans/](./plans/) — planes de implementación originales (uno por slice).
 
 ## Instalación (lazy.nvim)
