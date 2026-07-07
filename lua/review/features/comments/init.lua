@@ -23,6 +23,8 @@ local function ensure_hl()
   vim.api.nvim_set_hl(0, "ReviewPeekNormal", { bg = "#1e2030", fg = "#cad3f5", default = true })
   vim.api.nvim_set_hl(0, "ReviewPeekBorder", { bg = "#1e2030", fg = "#8aadf4", default = true })
   vim.api.nvim_set_hl(0, "ReviewPeekTitle", { bg = "#1e2030", fg = "#8aadf4", bold = true, default = true })
+  vim.api.nvim_set_hl(0, "ReviewPeekHeader", { bg = "#2c3a52", fg = "#8aadf4", bold = true, default = true })
+  vim.api.nvim_set_hl(0, "ReviewPeekSep", { bg = "#1e2030", fg = "#5b6078", default = true })
 end
 
 function M.setup(core, opts)

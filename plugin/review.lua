@@ -6,6 +6,7 @@ vim.cmd([[
   cnoreabbrev rlf Rlf
   cnoreabbrev rt  Rt
   cnoreabbrev rp  Rp
+  cnoreabbrev rpa Rpa
   cnoreabbrev rpc Rpc
   cnoreabbrev ryf Ryf
   cnoreabbrev rya Rya
