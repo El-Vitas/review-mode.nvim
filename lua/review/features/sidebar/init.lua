@@ -99,4 +99,6 @@ function M.setup(core, opts)
   end
 end
 
+require("review.core").registry.register({ name = "sidebar", setup = M.setup })
+
 return M
