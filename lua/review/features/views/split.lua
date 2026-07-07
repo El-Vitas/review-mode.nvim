@@ -59,6 +59,7 @@ local function restore_main(s)
       vim.wo[w].foldlevel = sv.fl or 99
       vim.wo[w].foldmethod = sv.fm or "manual"
       vim.wo[w].fillchars = sv.fc or ""
+      vim.wo[w].winhighlight = sv.wh or ""
     end)
   end
 end
@@ -82,6 +83,7 @@ local function create_pane(main_win)
     fl = vim.wo[main_win].foldlevel,
     fm = vim.wo[main_win].foldmethod,
     fc = vim.wo[main_win].fillchars,
+    wh = vim.wo[main_win].winhighlight,
   }
   vim.api.nvim_set_current_win(main_win)
   vim.cmd("leftabove vsplit")
@@ -173,6 +175,11 @@ function M.sync(core)
   -- Sin folds: mostrar TODAS las líneas (no compactar lo que no cambió).
   open_all_folds(s.left_win)
   open_all_folds(cur)
+  -- Colores por columna: HEAD (izq) en rojo, archivo (der) en verde.
+  local del = "DiffChange:ReviewDiffDelLine,DiffText:ReviewDiffDelText,DiffAdd:ReviewDiffDelLine,DiffDelete:ReviewDiffFiller"
+  local add = "DiffChange:ReviewDiffAddLine,DiffText:ReviewDiffAddText,DiffAdd:ReviewDiffAddLine,DiffDelete:ReviewDiffFiller"
+  pcall(function() vim.wo[s.left_win].winhighlight = del end)
+  pcall(function() vim.wo[cur].winhighlight = add end)
   vim.api.nvim_set_current_win(cur)
   pcall(vim.cmd, "diffupdate")
 end

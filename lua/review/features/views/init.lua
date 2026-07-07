@@ -10,6 +10,16 @@ M.mode = "normal"
 local VALID_MODES = { normal = true, inline = true, split = true }
 local applying = false
 
+-- Colores del split por COLUMNA: HEAD (izquierda) en ROJO (lo viejo/borrado),
+-- archivo (derecha) en VERDE (lo nuevo/agregado). Override-ables.
+local function ensure_diff_hl()
+  vim.api.nvim_set_hl(0, "ReviewDiffDelLine", { bg = "#3a2830", default = true })
+  vim.api.nvim_set_hl(0, "ReviewDiffDelText", { bg = "#5c2a38", fg = "#ed8796", default = true })
+  vim.api.nvim_set_hl(0, "ReviewDiffAddLine", { bg = "#26382c", default = true })
+  vim.api.nvim_set_hl(0, "ReviewDiffAddText", { bg = "#2f5238", fg = "#a6da95", default = true })
+  vim.api.nvim_set_hl(0, "ReviewDiffFiller", { bg = "#2a2b38", default = true })
+end
+
 -- Aplica el modo global a la ventana/buffer ACTUAL (la de edición).
 local function apply_current(core)
   if applying then return end
@@ -45,6 +55,9 @@ end
 function M.setup(core, opts)
   M.mode = "normal"
   local group = vim.api.nvim_create_augroup("ReviewViews", { clear = true })
+
+  ensure_diff_hl()
+  vim.api.nvim_create_autocmd("ColorScheme", { group = group, callback = ensure_diff_hl })
 
   -- Al entrar a un archivo, re-aplicar el modo global (global como VSCode).
   vim.api.nvim_create_autocmd({ "BufWinEnter", "BufEnter" }, {
