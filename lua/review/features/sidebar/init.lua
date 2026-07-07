@@ -88,8 +88,15 @@ function M.setup(core, opts)
     open_sidebar(kind)
   end, { nargs = "?", complete = function() return { "changed", "all" } end })
 
+  -- Toggle changed <-> all en el keymap.
+  M._mode = "all" -- así el primer toggle abre "changed"
+  local function toggle()
+    M._mode = (M._mode == "changed") and "all" or "changed"
+    open_sidebar(M._mode)
+    vim.notify("review.nvim: sidebar " .. (M._mode == "all" and "all files" or "changed files"), vim.log.levels.INFO)
+  end
   local keymap_lhs = (opts.leader or "<leader>r") .. "s"
-  vim.keymap.set("n", keymap_lhs, function() open_sidebar("changed") end, { desc = "Review: sidebar (changed)" })
+  vim.keymap.set("n", keymap_lhs, toggle, { desc = "Review: sidebar toggle changed/all" })
 
   if not M._subscribed then
     core.events.on("comments:changed", function()
