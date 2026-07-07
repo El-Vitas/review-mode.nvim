@@ -46,19 +46,37 @@ end
 -- Sobre una entrada: <CR> ir (y cerrar), d borrar, x resolver/des-resolver,
 -- q cerrar. Una winbar arriba muestra los atajos. `provider` se re-consulta
 -- para refrescar la lista tras d/x.
-local FILTER_LABEL = { all = "all", open = "open", resolved = "resolved" }
+local FILTER_CYCLE = { "all", "open", "resolved", "mine", "agent", "answered", "unanswered" }
+
+--- Filtra una lista de comentarios según `mode`. `replies_fn(id)` devuelve las
+--- respuestas de un comentario (para answered/unanswered). Función pura/testeable.
+function M._filter(list, replies_fn, mode)
+  local function answered(c) return #(replies_fn(c.id) or {}) > 0 end
+  local pred = {
+    all = function() return true end,
+    open = function(c) return not c.resolved end,
+    resolved = function(c) return c.resolved end,
+    mine = function(c) return (c.author or "user") == "user" end,
+    agent = function(c) return (c.author or "user") ~= "user" end,
+    answered = function(c) return answered(c) end,
+    unanswered = function(c) return not answered(c) end,
+  }
+  local f = pred[mode] or pred.all
+  local out = {}
+  for _, c in ipairs(list) do if f(c) then out[#out + 1] = c end end
+  return out
+end
 
 local function open_list(core, provider, title)
   local ctx = { filter = "all", raw = 0 }
   local ftitle = "review.nvim" .. (title and (": " .. title) or "")
 
   local function apply_filter(list)
-    if ctx.filter == "open" then
-      return vim.tbl_filter(function(c) return not c.resolved end, list)
-    elseif ctx.filter == "resolved" then
-      return vim.tbl_filter(function(c) return c.resolved end, list)
-    end
-    return list
+    -- La lista muestra solo comentarios top-level (las respuestas viven en el
+    -- hilo del padre, visible en el peek).
+    local top = {}
+    for _, c in ipairs(list) do if not c.reply_to then top[#top + 1] = c end end
+    return M._filter(top, function(id) return core.state.replies(id) end, ctx.filter)
   end
   local function items_now()
     local raw = provider()
@@ -80,7 +98,7 @@ local function open_list(core, provider, title)
 
   local function update_winbar()
     vim.wo[qwin].winbar = "%#Title# review.nvim %* ‹Enter› go · ‹d› delete · ‹x› resolve · ‹f› filter:"
-      .. FILTER_LABEL[ctx.filter] .. " · ‹q› close"
+      .. ctx.filter .. " · ‹q› close"
   end
   update_winbar()
 
@@ -101,10 +119,12 @@ local function open_list(core, provider, title)
   end
 
   vim.keymap.set("n", "f", function()
-    ctx.filter = (ctx.filter == "all" and "open") or (ctx.filter == "open" and "resolved") or "all"
+    local i = 1
+    for k, v in ipairs(FILTER_CYCLE) do if v == ctx.filter then i = k end end
+    ctx.filter = FILTER_CYCLE[i % #FILTER_CYCLE + 1]
     refresh()
     update_winbar()
-  end, { buffer = qbuf, nowait = true, desc = "review.nvim: filter all/open/resolved" })
+  end, { buffer = qbuf, nowait = true, desc = "review.nvim: cycle filter" })
 
   vim.keymap.set("n", "<CR>", function()
     local idx = vim.fn.line(".")

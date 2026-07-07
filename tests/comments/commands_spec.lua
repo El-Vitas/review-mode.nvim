@@ -41,4 +41,25 @@ describe("comments.commands", function()
     -- lhs ahí queda ya expandido (depende del mapleader del entorno).
     assert.is_true(vim.fn.maparg("<leader>rr", "n") ~= "")
   end)
+
+  it("_filter selecciona por modo (mine/agent/answered/unanswered)", function()
+    local p = { id = "p", author = "user", resolved = false }
+    local a = { id = "a", author = "agent", resolved = false }
+    local list = { p, a }
+    local replies_fn = function(id) return id == "p" and { {} } or {} end  -- p tiene 1 respuesta
+
+    local mine = commands._filter(list, replies_fn, "mine")
+    assert.are.equal(1, #mine); assert.are.equal("p", mine[1].id)
+
+    local ag = commands._filter(list, replies_fn, "agent")
+    assert.are.equal(1, #ag); assert.are.equal("a", ag[1].id)
+
+    local answered = commands._filter(list, replies_fn, "answered")
+    assert.are.equal(1, #answered); assert.are.equal("p", answered[1].id)
+
+    local unanswered = commands._filter(list, replies_fn, "unanswered")
+    assert.are.equal(1, #unanswered); assert.are.equal("a", unanswered[1].id)
+
+    assert.are.equal(2, #commands._filter(list, replies_fn, "all"))
+  end)
 end)
