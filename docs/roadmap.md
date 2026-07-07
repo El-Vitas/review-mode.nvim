@@ -81,6 +81,20 @@ y usuario mutan `core.state` uno a la vez, sin data race. Cada mutación emite
 **Notificación:** cuando el agente comenta/responde/resuelve, un `vim.notify`
 discreto (y opcional salto/decoración) para que sepas qué tocó.
 
+**Reload MANUAL (idea de tuicr):** tuicr no pelea con auto-reload; expone `:e`
+(alias `:reload`) = "reload diff files", que re-lee el working tree/diff y
+re-ancla. Es robusto y predecible. Nosotros haremos lo mismo:
+- Un comando `:ReviewReload [path]` (y el `notify_changed(path)` del agente lo
+  llama internamente) que: `checktime`/recarga el/los buffer(s) afectados +
+  re-ancla los comentarios (diff viejo↔nuevo + ancla por contenido). Así el
+  auto-reload (`FileChangedShell`) es la vía cómoda, pero SIEMPRE hay un reload
+  manual/explícito como fallback confiable, y el agente dispara ese mismo camino.
+- **Keying a HEAD (idea de tuicr):** sus sesiones "live" embeben el short-SHA del
+  HEAD, así un commit nuevo = sesión fresca (no arrastra comentarios stale). Para
+  nosotros los comentarios viven sobre el working file (persisten entre commits),
+  pero conviene registrar contra qué HEAD se creó cada comentario, para poder
+  avisar/marcar `stale` si el HEAD cambió mucho.
+
 ### 1.4 API `_G.ReviewAgent` (propuesta)
 
 Solo comentarios y coordinación. **El código NO pasa por acá** — lo escribe el
