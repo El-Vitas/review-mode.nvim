@@ -2,11 +2,12 @@ local store = require("review.core.store")
 local state = require("review.core.state")
 local git = require("review.core.git")
 local ns = require("review.core.ns")
+local events = require("review.core.events")
 
 package.loaded["review.features.comments.init"] = nil
 local comments = require("review.features.comments.init")
 
-local core = { state = state, git = git, ns = ns }
+local core = { state = state, git = git, ns = ns, events = events }
 
 describe("comments.init", function()
   local root, bufnr
@@ -42,5 +43,18 @@ describe("comments.init", function()
     vim.cmd("silent! write! " .. vim.fn.fnameescape(vim.api.nvim_buf_get_name(bufnr)))
     vim.wait(50)
     assert.are.equal(3, state.by_id(c.id).lnum)
+  end)
+
+  it("buffer:reconciled dispara render.reconcile y re-sincroniza posiciones", function()
+    comments.setup(core, { leader = "<leader>r" })
+    local events = require("review.core.events")
+    local c = state.add({ path = "foo.ts", lnum = 2, text = "x", anchor_text = "l2" })
+    require("review.features.comments.render").render(core, bufnr)
+    vim.api.nvim_set_current_buf(bufnr)
+    -- simulamos que reconcile ya aplicó un patch: se insertó una línea arriba
+    vim.api.nvim_buf_set_lines(bufnr, 0, 0, false, { "nueva" })
+    events.emit("buffer:reconciled", { bufnr = bufnr })
+    vim.wait(50)
+    assert.are.equal(3, state.by_id(c.id).lnum)  -- 2 -> 3
   end)
 end)

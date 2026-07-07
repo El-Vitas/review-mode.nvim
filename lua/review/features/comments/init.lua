@@ -65,6 +65,14 @@ function M.setup(core, opts)
     callback = function(args) mode.cleanup_buffer(args.buf) end,
   })
 
+  -- El agente (o cualquiera) editó el archivo en disco y reconcile aplicó el
+  -- patch al buffer; re-sincronizamos posiciones y marcamos stale los dudosos.
+  core.events.on("buffer:reconciled", function(payload)
+    if payload and payload.bufnr and vim.api.nvim_buf_is_valid(payload.bufnr) then
+      render.reconcile(core, payload.bufnr)
+    end
+  end)
+
   commands.setup(core, opts)
   gutter.setup(core)
 end
