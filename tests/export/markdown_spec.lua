@@ -11,7 +11,8 @@ describe("features.export.markdown", function()
         { id = "1", path = "src/a.ts", lnum = 10, end_lnum = 10, text = "ojo con esto", resolved = false },
       }
       local out = md.markdown(list)
-      assert.is_truthy(out:match("^1%. "))
+      assert.is_truthy(out:match("^## src/a%.ts")) -- encabezado del grupo
+      assert.is_truthy(out:match("1%. "))
       assert.is_truthy(out:match("`src/a%.ts:10`"))
       assert.is_falsy(out:match("`src/a%.ts:10-10`"))
       assert.is_truthy(out:match("ojo con esto"))
@@ -60,9 +61,28 @@ describe("features.export.markdown", function()
         { id = "2", path = "a.ts", lnum = 2, end_lnum = 2, text = "otro", resolved = false },
       }
       local out = md.markdown(list)
-      local n = select(2, out:gsub("\n", "\n")) + 1  -- cantidad de líneas
-      assert.are.equal(2, n)                          -- exactamente 2 líneas numeradas
+      local numbered = select(2, out:gsub("\n%d+%. ", "")) + (out:match("^%d+%. ") and 1 or 0)
+      assert.are.equal(2, numbered) -- exactamente 2 líneas numeradas
       assert.is_truthy(out:match("1%. .*línea1 línea2"))
+    end)
+
+    it("agrupa por archivo (## header) y ordena por archivo+línea, numeración continua", function()
+      local list = {
+        { id = "1", path = "b.ts", lnum = 9, end_lnum = 9, text = "b nueve", resolved = false },
+        { id = "2", path = "a.ts", lnum = 5, end_lnum = 5, text = "a cinco", resolved = false },
+        { id = "3", path = "a.ts", lnum = 2, end_lnum = 2, text = "a dos", resolved = false },
+      }
+      local out = md.markdown(list)
+      -- orden esperado: ## a.ts (2, luego 5), ## b.ts (9); numeración 1..3
+      local expected = table.concat({
+        "## a.ts",
+        "1. `a.ts:2` a dos",
+        "2. `a.ts:5` a cinco",
+        "",
+        "## b.ts",
+        "3. `b.ts:9` b nueve",
+      }, "\n")
+      assert.are.equal(expected, out)
     end)
   end)
 

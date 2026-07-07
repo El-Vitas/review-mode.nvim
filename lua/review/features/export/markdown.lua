@@ -14,21 +14,38 @@ local function oneline(text)
   return ((text or ""):gsub("[\r\n]+", " "))
 end
 
---- Formatea una lista de comentarios a markdown numerado, agent-ready.
---- Excluye los comentarios resueltos. Devuelve "" si no queda ninguno.
+--- Formatea una lista de comentarios a markdown agent-ready: AGRUPADO por
+--- archivo (encabezado `## <path>`) y ORDENADO por archivo + línea, con
+--- numeración CONTINUA. Excluye los resueltos. Devuelve "" si no queda ninguno.
 --- @param list table[] lista de comment (id, path, lnum, end_lnum, text, resolved, ...)
 --- @return string
 function M.markdown(list)
   list = list or {}
+  -- Filtrar resueltos.
+  local items = {}
+  for _, c in ipairs(list) do
+    if not c.resolved then items[#items + 1] = c end
+  end
+  if #items == 0 then return "" end
+
+  -- Ordenar por archivo, luego por línea.
+  table.sort(items, function(a, b)
+    if a.path ~= b.path then return a.path < b.path end
+    return (a.lnum or 0) < (b.lnum or 0)
+  end)
+
   local lines = {}
   local n = 0
-  for _, c in ipairs(list) do
-    if not c.resolved then
-      n = n + 1
-      table.insert(lines, string.format("%d. %s %s", n, anchor(c), oneline(c.text)))
+  local cur_path = nil
+  for _, c in ipairs(items) do
+    if c.path ~= cur_path then
+      cur_path = c.path
+      if #lines > 0 then lines[#lines + 1] = "" end -- línea en blanco entre grupos
+      lines[#lines + 1] = "## " .. cur_path
     end
+    n = n + 1
+    lines[#lines + 1] = string.format("%d. %s %s", n, anchor(c), oneline(c.text))
   end
-  if n == 0 then return "" end
   return table.concat(lines, "\n")
 end
 
