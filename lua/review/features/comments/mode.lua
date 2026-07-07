@@ -229,7 +229,9 @@ local function install_peek_visibility()
           if e.code_win and vim.api.nvim_win_is_valid(e.code_win) then
             local top = vim.api.nvim_win_call(e.code_win, function() return vim.fn.line("w0") end)
             local bot = vim.api.nvim_win_call(e.code_win, function() return vim.fn.line("w$") end)
-            local visible = e.line >= top and e.line <= bot
+            -- Visible si CUALQUIER parte del rango del comentario está en vista
+            -- (no solo la línea ancla) -> se siente más fluido al scrollear.
+            local visible = e.hi >= top and e.lo <= bot
             pcall(vim.api.nvim_win_set_config, e.win, { hide = not visible })
           end
         end
@@ -277,11 +279,12 @@ local function open_peek_float(c, code_win)
   vim.api.nvim_buf_set_extmark(buf, peek_ns, 0, 0, { end_row = 1, hl_group = "ReviewPeekHeader", hl_eol = true })
   vim.api.nvim_buf_set_extmark(buf, peek_ns, 1, 0, { end_row = 2, hl_group = "ReviewPeekSep", hl_eol = true })
 
-  local first = math.min(c.lnum, c.end_lnum or c.lnum)
+  local lo = math.min(c.lnum, c.end_lnum or c.lnum)
+  local hi = math.max(c.lnum, c.end_lnum or c.lnum)
   local win = vim.api.nvim_open_win(buf, false, {
     relative = "win",
     win = code_win,
-    bufpos = { first - 1, 0 }, -- ancla a la 1ª línea del comentario en el buffer
+    bufpos = { lo - 1, 0 }, -- ancla a la 1ª línea del comentario en el buffer
     row = 1,
     col = 0,
     width = width,
@@ -290,13 +293,13 @@ local function open_peek_float(c, code_win)
     border = "rounded",
     title = " Comentario " .. range .. " ",
     title_pos = "left",
-    footer = " q cerrar · Q cerrar todos ",
+    footer = " <leader>rp cerrar · <leader>rP todos ",
     footer_pos = "right",
     noautocmd = true,
   })
   vim.wo[win].winhighlight = "Normal:ReviewPeekNormal,FloatBorder:ReviewPeekBorder,FloatTitle:ReviewPeekTitle,FloatFooter:ReviewPeekSep"
   vim.wo[win].winblend = 0
-  table.insert(M._peek_wins, { win = win, buf = buf, line = first, code_win = code_win })
+  table.insert(M._peek_wins, { win = win, buf = buf, line = lo, lo = lo, hi = hi, id = c.id, code_win = code_win })
   install_peek_visibility()
 
   -- Botones: q = cerrar este; Q = cerrar todos.
@@ -305,9 +308,9 @@ local function open_peek_float(c, code_win)
   vim.keymap.set("n", "Q", M.close_all_peeks, { buffer = buf, nowait = true })
 end
 
---- Abre un flotante anclado al comentario de la línea actual. Cada llamada abre
---- uno NUEVO e independiente; se mueve con el código al scrollear y se oculta si
---- te alejás. Se mantiene hasta cerrarlo (q este, Q/<leader>rP todos).
+--- TOGGLE del peek del comentario bajo el cursor: si ya está abierto, lo cierra;
+--- si no, lo abre (anclado a su bloque). Se mueve con el código al scrollear y
+--- se oculta si te alejás de todo su rango.
 function M.peek_here(core)
   local bufnr = vim.api.nvim_get_current_buf()
   local rel = core.git.rel_path(bufnr)
@@ -316,6 +319,14 @@ function M.peek_here(core)
   if not c then
     vim.notify("review.nvim: no hay comentario en esta línea", vim.log.levels.INFO)
     return
+  end
+  -- Toggle: si ya hay un peek de ESTE comentario, cerrarlo.
+  for i, e in ipairs(M._peek_wins) do
+    if e.id == c.id then
+      if e.win and vim.api.nvim_win_is_valid(e.win) then pcall(vim.api.nvim_win_close, e.win, true) end
+      table.remove(M._peek_wins, i)
+      return
+    end
   end
   open_peek_float(c, vim.api.nvim_get_current_win())
 end

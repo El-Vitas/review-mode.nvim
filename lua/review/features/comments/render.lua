@@ -39,13 +39,18 @@ function M.render(core, bufnr)
     local edge_hl = resolved and "ReviewCommentBadgeEdgeResolved" or "ReviewCommentBadgeEdge"
     local icon = resolved and "✓" or "💬"
 
+    -- Corchete en la columna de signos que DELIMITA cada comentario (┌ arriba,
+    -- │ medio, └ abajo; ▌ si es de una sola línea). Así, cuando hay varios
+    -- comentarios juntos, se distingue dónde empieza y termina cada uno.
+    local multi = end_lnum > lnum
+    local head_sign = multi and "┌" or "▌"
+
     -- Extmark ANCLA (primera línea): lleva end_row para rastrear el rango al
-    -- editar, la barra lateral (borde), el resaltado de línea y un BADGE con
-    -- fondo y bordecito al final. Es el que usa sync_positions; para 1 línea,
-    -- es el único.
+    -- editar, el corchete, el resaltado de línea y un BADGE con fondo y
+    -- bordecito al final. Es el que usa sync_positions; para 1 línea, el único.
     local id = vim.api.nvim_buf_set_extmark(bufnr, core.ns.comments, row, 0, {
       end_row = end_lnum - 1,
-      sign_text = "▌",
+      sign_text = head_sign,
       sign_hl_group = sign_hl,
       line_hl_group = line_hl,
       virt_text = {
@@ -58,11 +63,10 @@ function M.render(core, bufnr)
     })
     c._extmark_id = id
 
-    -- Líneas de continuación del rango: misma barra lateral + fondo, para que
-    -- el bloque completo se vea "encerrado" por el borde.
+    -- Líneas de continuación: │ (medio) y └ (última) + mismo fondo.
     for r = row + 1, end_lnum - 1 do
       vim.api.nvim_buf_set_extmark(bufnr, core.ns.comments, r, 0, {
-        sign_text = "▌",
+        sign_text = (r == end_lnum - 1) and "└" or "│",
         sign_hl_group = sign_hl,
         line_hl_group = line_hl,
       })
