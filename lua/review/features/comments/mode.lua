@@ -184,6 +184,54 @@ function M.edit_here(core)
   })
 end
 
+-- Comentarios cuyo rango cubre `lnum`.
+local function all_at(core, rel, lnum)
+  local out = {}
+  for _, c in ipairs(core.state.for_path(rel)) do
+    local lo = math.min(c.lnum, c.end_lnum or c.lnum)
+    local hi = math.max(c.lnum, c.end_lnum or c.lnum)
+    if lnum >= lo and lnum <= hi then out[#out + 1] = c end
+  end
+  return out
+end
+
+--- Muestra en un flotante bordeado (con fondo) el/los comentario(s) completos
+--- de la línea actual. Se cierra solo al mover el cursor.
+function M.peek_here(core)
+  local bufnr = vim.api.nvim_get_current_buf()
+  local rel = core.git.rel_path(bufnr)
+  if not rel then return end
+  local matches = all_at(core, rel, clamp(bufnr, vim.fn.line(".")))
+  if #matches == 0 then
+    vim.notify("review.nvim: no hay comentario en esta línea", vim.log.levels.INFO)
+    return
+  end
+
+  local lines = {}
+  for i, c in ipairs(matches) do
+    if i > 1 then lines[#lines + 1] = "───────────────" end
+    local range = (c.end_lnum and c.end_lnum ~= c.lnum)
+        and string.format("L%d-%d", c.lnum, c.end_lnum)
+        or ("L" .. c.lnum)
+    local status = c.resolved and "✓ resuelto" or "💬 abierto"
+    lines[#lines + 1] = string.format("%s · `%s` · _%s_", status, range, c.author or "user")
+    lines[#lines + 1] = ""
+    for _, tl in ipairs(vim.split(c.text or "", "\n", { plain = true })) do
+      lines[#lines + 1] = tl
+    end
+  end
+
+  local ok, _ = pcall(vim.lsp.util.open_floating_preview, lines, "markdown", {
+    border = "rounded",
+    focusable = false,
+    max_width = 80,
+    title = " Comentario ",
+  })
+  if not ok then
+    vim.lsp.util.open_floating_preview(lines, "markdown", { border = "rounded", focusable = false })
+  end
+end
+
 function M.delete_here(core)
   return M._delete_at(core, vim.api.nvim_get_current_buf(), vim.fn.line("."))
 end

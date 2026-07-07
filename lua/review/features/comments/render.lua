@@ -34,15 +34,14 @@ function M.render(core, bufnr)
     local line_hl = resolved and "ReviewCommentLineResolved" or "ReviewCommentLine"
     local sign_hl = resolved and "ReviewCommentSignResolved" or "ReviewCommentSign"
     local text_hl = resolved and "Comment" or "DiagnosticInfo"
-    local head_sign = resolved and "✓ " or "💬"
     local prefix = resolved and "✓ " or "💬 "
 
     -- Extmark ANCLA (primera línea): lleva end_row para rastrear el rango al
-    -- editar, el signo, el resaltado de línea y el preview al final. Es el que
-    -- usa sync_positions. Para un comentario de una sola línea, es el único.
+    -- editar, la barra lateral (borde), el resaltado de línea y el preview al
+    -- final. Es el que usa sync_positions; para 1 línea, es el único.
     local id = vim.api.nvim_buf_set_extmark(bufnr, core.ns.comments, row, 0, {
       end_row = end_lnum - 1,
-      sign_text = head_sign,
+      sign_text = "▌",
       sign_hl_group = sign_hl,
       line_hl_group = line_hl,
       virt_text = { { prefix .. text, text_hl } },
@@ -50,11 +49,11 @@ function M.render(core, bufnr)
     })
     c._extmark_id = id
 
-    -- Líneas de continuación del rango: resaltar el fondo + signo de "borde"
-    -- en la columna de signos, para que se vea qué tramo abarca el comentario.
+    -- Líneas de continuación del rango: misma barra lateral + fondo, para que
+    -- el bloque completo se vea "encerrado" por el borde.
     for r = row + 1, end_lnum - 1 do
       vim.api.nvim_buf_set_extmark(bufnr, core.ns.comments, r, 0, {
-        sign_text = "│ ",
+        sign_text = "▌",
         sign_hl_group = sign_hl,
         line_hl_group = line_hl,
       })

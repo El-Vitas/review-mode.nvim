@@ -4,13 +4,15 @@ local commands = require("review.features.comments.commands")
 local M = {}
 
 -- Define los highlight groups del resaltado de rango, con `default = true` para
--- que el usuario pueda sobreescribirlos en su config. Abiertos: fondo tipo
--- Visual + signo azul; resueltos: fondo tenue (CursorLine) + signo atenuado.
+-- que el usuario pueda sobreescribirlos en su config. Se usan COLORES PROPIOS
+-- (no `Visual`) para que un comentario no se confunda con una selección: fondo
+-- ámbar tenue + barra lateral peach para abiertos, y gris tenue para resueltos.
+-- Tonos pensados para temas oscuros (p. ej. catppuccin macchiato).
 local function ensure_hl()
-  vim.api.nvim_set_hl(0, "ReviewCommentLine", { link = "Visual", default = true })
-  vim.api.nvim_set_hl(0, "ReviewCommentLineResolved", { link = "CursorLine", default = true })
-  vim.api.nvim_set_hl(0, "ReviewCommentSign", { link = "DiagnosticInfo", default = true })
-  vim.api.nvim_set_hl(0, "ReviewCommentSignResolved", { link = "Comment", default = true })
+  vim.api.nvim_set_hl(0, "ReviewCommentLine", { bg = "#3a3320", default = true })
+  vim.api.nvim_set_hl(0, "ReviewCommentLineResolved", { bg = "#2a2b33", default = true })
+  vim.api.nvim_set_hl(0, "ReviewCommentSign", { fg = "#f5a97f", bold = true, default = true })
+  vim.api.nvim_set_hl(0, "ReviewCommentSignResolved", { fg = "#6e738d", default = true })
 end
 
 function M.setup(core, opts)

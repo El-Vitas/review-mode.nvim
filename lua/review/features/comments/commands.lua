@@ -33,7 +33,8 @@ local function sorted(comments)
   return list
 end
 
--- Abre la quickfix con Enter/click para saltar al archivo:línea (nativo).
+-- Abre la quickfix con Enter/click para saltar al archivo:línea, cerrando el
+-- panel al saltar; `q` también lo cierra.
 local function open_list(core, comments, title)
   local items = to_qf_items(core, sorted(comments))
   if #items == 0 then
@@ -42,6 +43,16 @@ local function open_list(core, comments, title)
   end
   vim.fn.setqflist({}, " ", { title = "review.nvim" .. (title and (": " .. title) or ""), items = items })
   vim.cmd("copen")
+
+  local qbuf = vim.api.nvim_get_current_buf()
+  -- Enter: saltar a la entrada bajo el cursor y cerrar el panel.
+  vim.keymap.set("n", "<CR>", function()
+    local idx = vim.fn.line(".")
+    vim.cmd("cclose")
+    pcall(vim.cmd, idx .. "cc")
+  end, { buffer = qbuf, nowait = true, desc = "review.nvim: ir al comentario y cerrar" })
+  -- q: cerrar el panel.
+  vim.keymap.set("n", "q", "<Cmd>cclose<CR>", { buffer = qbuf, nowait = true, desc = "review.nvim: cerrar lista" })
 end
 
 -- Re-renderiza los comentarios en todos los buffers cargados (tras un toggle).
@@ -72,6 +83,7 @@ function M.setup(core, opts)
     rerender_all(core)
     vim.notify("review.nvim: comentarios " .. (render.hidden and "ocultos" or "visibles"), vim.log.levels.INFO)
   end
+  local function peek() mode.peek_here(core) end
 
   -- Comandos largos + alias cortos (todos comandos REALES; las minúsculas las
   -- resuelve plugin/review.lua vía cnoreabbrev).
@@ -83,6 +95,8 @@ function M.setup(core, opts)
   vim.api.nvim_create_user_command("Rlf", list_file, {})
   vim.api.nvim_create_user_command("ReviewToggle", toggle_hidden, {}) -- ocultar/mostrar
   vim.api.nvim_create_user_command("Rt", toggle_hidden, {})
+  vim.api.nvim_create_user_command("ReviewPeek", peek, {})           -- ver comentario (flotante)
+  vim.api.nvim_create_user_command("Rp", peek, {})
 
   vim.keymap.set("n", leader .. "r", function() mode.edit_here(core) end, { desc = "Review: editar comentario de la línea" })
   vim.keymap.set("n", leader .. "c", function() mode.add_here(core, {}) end, { desc = "Review: comentar línea" })
@@ -92,6 +106,7 @@ function M.setup(core, opts)
   vim.keymap.set("n", leader .. "l", list_all, { desc = "Review: listar comentarios (global)" })
   vim.keymap.set("n", leader .. "L", list_file, { desc = "Review: listar comentarios del archivo" })
   vim.keymap.set("n", leader .. "h", toggle_hidden, { desc = "Review: ocultar/mostrar comentarios" })
+  vim.keymap.set("n", leader .. "p", peek, { desc = "Review: ver comentario (flotante)" })
 end
 
 return M
