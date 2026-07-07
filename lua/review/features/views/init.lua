@@ -65,12 +65,16 @@ function M.setup(core, opts)
     end,
   })
 
-  -- Re-render en vivo del modo inline al editar (el split nativo se re-diffea solo).
+  -- Re-render en vivo al editar. Inline: repinta. Split: re-sincroniza para
+  -- abrir/cerrar las 2 columnas según aparezcan/desaparezcan cambios vs HEAD.
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
     group = group,
     callback = function(a)
-      if M.mode == "inline" and vim.bo[a.buf].buftype == "" then
+      if vim.bo[a.buf].buftype ~= "" then return end
+      if M.mode == "inline" then
         pcall(inline.render, core, a.buf)
+      elseif M.mode == "split" then
+        pcall(apply_current, core)
       end
     end,
   })

@@ -22,6 +22,15 @@ local function ensure_diffopt()
   if #add > 0 then vim.o.diffopt = vim.o.diffopt .. "," .. table.concat(add, ",") end
 end
 
+-- ¿Dos listas de líneas son idénticas?
+local function same_lines(a, b)
+  if #a ~= #b then return false end
+  for i = 1, #a do
+    if a[i] ~= b[i] then return false end
+  end
+  return true
+end
+
 --- ¿Es `bufnr` el scratch del panel HEAD?
 function M.is_scratch(bufnr)
   return M._session ~= nil and M._session.buf == bufnr
@@ -115,9 +124,20 @@ function M.sync(core)
 
   local rel = core.git.rel_path(buf)
   if not rel then M.teardown(); return end
-  local root = core.git.root(buf)
-  local head = core.git.head_content(rel, root)
-  if not head then M.teardown(); return end -- sin HEAD: una sola columna
+
+  -- HEAD (cacheado en la sesión mientras sea el mismo archivo, para no correr
+  -- git en cada edición).
+  local head
+  if s and s.rel == rel and s.head then
+    head = s.head
+  else
+    head = core.git.head_content(rel, core.git.root(buf))
+  end
+  if not head then M.teardown(); return end -- sin HEAD (archivo nuevo): una columna
+
+  -- Sin diferencias vs HEAD -> una sola columna (no abrir 2 columnas).
+  local blines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  if same_lines(head, blines) then M.teardown(); return end
 
   ensure_diffopt()
 
@@ -127,6 +147,8 @@ function M.sync(core)
   else
     s.main_win = cur
   end
+  s.rel = rel
+  s.head = head
 
   -- Rellenar el scratch con el HEAD del archivo actual.
   local scratch = s.buf
