@@ -6,6 +6,28 @@
 -- Estado POR BUFFER: `_panels[bufnr] = { win = <left_win>, buf = <scratch>, main = <right_win> }`.
 local M = { _panels = {} }
 
+-- Asegura en `diffopt` las opciones que dan la alineación estilo VSCode:
+-- `linematch` empareja líneas comunes DENTRO de un bloque cambiado (sin esto,
+-- Neovim apila el bloque borrado y el agregado sin alinearlos); `histogram` e
+-- `indent-heuristic` es el mismo algoritmo que usa VSCode; `filler` muestra las
+-- líneas de relleno para que ambos lados calcen. Preserva las flags del usuario.
+local function ensure_diffopt()
+  local parts = vim.split(vim.o.diffopt, ",", { trimempty = true })
+  local has = {}
+  for _, p in ipairs(parts) do
+    has[p:match("^([%w%-]+)") or p] = true
+  end
+  local add = {}
+  if not has["internal"] then add[#add + 1] = "internal" end
+  if not has["filler"] then add[#add + 1] = "filler" end
+  if not has["linematch"] then add[#add + 1] = "linematch:60" end
+  if not has["algorithm"] then add[#add + 1] = "algorithm:histogram" end
+  if not has["indent-heuristic"] then add[#add + 1] = "indent-heuristic" end
+  if #add > 0 then
+    vim.o.diffopt = vim.o.diffopt .. "," .. table.concat(add, ",")
+  end
+end
+
 --- Devuelve el bufnr real dueño de un buffer scratch de panel HEAD (o nil).
 --- Permite que los comandos ejecutados DESDE el panel izquierdo actúen sobre
 --- el archivo real, no sobre el scratch.
@@ -42,6 +64,8 @@ function M.open(core, bufnr)
 
   M.close(core, bufnr) -- cierra un panel previo de ESTE buffer, si lo hubiera
 
+  ensure_diffopt() -- alineación línea-a-línea estilo VSCode
+
   local ft = vim.bo[bufnr].filetype
   local target_win = vim.api.nvim_get_current_win()
 
@@ -67,6 +91,9 @@ function M.open(core, bufnr)
   -- Mostrar TODAS las líneas (sin plegar los tramos sin cambios, estilo VSCode).
   vim.wo[left_win].foldenable = false
   vim.wo[target_win].foldenable = false
+  -- Relleno diagonal (rayado) en vez de las líneas de guiones por defecto.
+  vim.wo[left_win].fillchars = "diff:╱"
+  vim.wo[target_win].fillchars = "diff:╱"
 
   M._panels[bufnr] = { win = left_win, buf = scratch, main = target_win }
 
@@ -82,6 +109,7 @@ function M.close(core, bufnr)
     if p.main and vim.api.nvim_win_is_valid(p.main) then
       vim.api.nvim_win_call(p.main, function() vim.cmd("diffoff") end)
       vim.wo[p.main].foldenable = true
+      vim.wo[p.main].fillchars = "" -- restaurar relleno por defecto
     end
     if p.win and vim.api.nvim_win_is_valid(p.win) then
       pcall(vim.api.nvim_win_close, p.win, true)
