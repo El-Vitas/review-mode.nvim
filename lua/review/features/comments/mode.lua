@@ -247,20 +247,18 @@ function M.peek_here(core)
   width = math.min(width + 2, 90)
   local height = math.min(math.max(#lines, 3), 20)
 
-  -- Posición FIJA en pantalla, cerca del bloque (posición de pantalla de la
-  -- primera línea al momento de abrir). relative="editor" => no sigue al cursor
-  -- ni se mueve con el scroll.
+  -- ANCLADO AL BLOQUE (no a la pantalla): relative="win" + bufpos ata el
+  -- flotante a la posición del comentario en el buffer. Al scrollear, se mueve
+  -- CON el código y desaparece si te alejás — no se queda tapando la pantalla ni
+  -- sigue al cursor. Neovim lo reposiciona solo.
+  local code_win = vim.api.nvim_get_current_win()
   local first = math.min(c.lnum, c.end_lnum or c.lnum)
-  local sp = vim.fn.screenpos(vim.api.nvim_get_current_win(), first, 1)
-  local row = (sp.row and sp.row > 0) and sp.row or math.floor((vim.o.lines - height) / 2)
-  local col = (sp.col and sp.col > 0) and (sp.col - 1) or 4
-  if row + height + 2 > vim.o.lines then row = math.max((sp.row or 0) - height - 2, 0) end
-  if col + width + 2 > vim.o.columns then col = math.max(vim.o.columns - width - 2, 0) end
-
   local win = vim.api.nvim_open_win(buf, false, {
-    relative = "editor",
-    row = row,
-    col = col,
+    relative = "win",
+    win = code_win,
+    bufpos = { first - 1, 0 }, -- 0-indexed: ancla a la 1ª línea del comentario
+    row = 1,                   -- una línea por debajo del ancla
+    col = 0,
     width = width,
     height = height,
     style = "minimal",
