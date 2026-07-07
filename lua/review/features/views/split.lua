@@ -65,11 +65,15 @@ local function is_panel_win(win)
 end
 
 -- La rueda del mouse NO siempre dispara la propagación de `scrollbind`. Por eso,
--- ante cualquier scroll (WinScrolled cubre mouse Y teclado) forzamos `syncbind`
--- DESDE la ventana que se movió, de modo que la otra la siga. No hay
--- realimentación: si ya están alineadas (paneles del mismo largo, offset 0),
--- `syncbind` no mueve nada y no vuelve a disparar el evento. El flag `_syncing`
--- corta cualquier reentrada dentro del mismo stack.
+-- ante un scroll de la ventana CON FOCO (WinScrolled cubre mouse Y teclado)
+-- forzamos `syncbind` desde ella para que la otra la siga.
+--
+-- Clave anti-loop: solo actuamos si la ventana que scrolleó es la ventana
+-- ACTUAL. Cuando nuestro `syncbind` mueve la OTRA ventana (que no tiene foco),
+-- ese WinScrolled se ignora → es estructuralmente imposible que se
+-- retroalimente y entre en el bucle infinito que bloqueaba el editor. El
+-- efecto secundario aceptable: scrollear con el mouse una ventana SIN foco no
+-- arrastra a la otra (hacelo con foco, o con teclado que ya sincroniza nativo).
 local _syncing = false
 local function install_sync()
   if M._sync_installed then return end
@@ -81,8 +85,10 @@ local function install_sync()
       local win = tonumber(args.match)
       if not win or not vim.api.nvim_win_is_valid(win) then return end
       if not is_panel_win(win) then return end
+      -- Solo la ventana con foco es "driver"; su pareja se sincroniza sola.
+      if win ~= vim.api.nvim_get_current_win() then return end
       _syncing = true
-      pcall(vim.api.nvim_win_call, win, function() vim.cmd("syncbind") end)
+      pcall(vim.cmd, "syncbind")
       _syncing = false
     end,
   })
@@ -137,19 +143,29 @@ function M.open(core, bufnr)
   vim.bo[scratch].readonly = true
   pcall(vim.api.nvim_buf_set_name, scratch, "review://head/" .. relpath)
 
+  -- Mismo filetype que el archivo real → syntax highlighting (treesitter/
+  -- syntax se enganchan al FileType). Sin esto el panel HEAD se ve gris.
+  local ft = vim.bo[bufnr].filetype
+  if ft and ft ~= "" then
+    vim.bo[scratch].filetype = ft
+  end
+
   vim.api.nvim_win_set_buf(left_win, scratch)
   head_hl_deletes(core, scratch, head_count, hunks)   -- rojo en HEAD (izquierda)
   current_hl_adds(core, bufnr, hunks)                 -- verde en el archivo (derecha)
 
   M._panels[bufnr] = { win = left_win, buf = scratch, main = target_win }
 
-  -- Arrancar ambos alineados en la línea 1 (offset de scrollbind = 0) y
-  -- activar el bind en las dos ventanas. syncbind fija el punto de partida.
-  pcall(vim.api.nvim_win_set_cursor, left_win, { 1, 0 })
-  pcall(vim.api.nvim_win_set_cursor, target_win, { 1, 0 })
+  -- Alinear el panel HEAD a la posición ACTUAL del archivo (no saltar a la
+  -- línea 1): así `:rvs` recuerda dónde estabas parado. Ponemos el cursor del
+  -- HEAD en la misma línea (clampeada) y luego `syncbind` desde la ventana real
+  -- iguala el scroll de ambos a esa posición.
+  local cur = vim.api.nvim_win_get_cursor(target_win)
+  local lc = vim.api.nvim_buf_line_count(scratch)
+  pcall(vim.api.nvim_win_set_cursor, left_win, { math.min(cur[1], lc), 0 })
   set_bind(left_win, true)
   set_bind(target_win, true)
-  install_sync() -- fuerza el sync también con la rueda del mouse
+  install_sync() -- fuerza el sync también con la rueda del mouse (ventana con foco)
   vim.api.nvim_set_current_win(target_win)
   pcall(vim.cmd, "syncbind")
 end
