@@ -33,26 +33,77 @@ local function sorted(comments)
   return list
 end
 
--- Abre la quickfix con Enter/click para saltar al archivo:línea, cerrando el
--- panel al saltar; `q` también lo cierra.
-local function open_list(core, comments, title)
-  local items = to_qf_items(core, sorted(comments))
+-- Re-renderiza los extmarks del archivo de `c` si está abierto en un buffer.
+local function rerender_file(core, c)
+  local root = core.git.root() or ""
+  local bnr = vim.fn.bufnr((root ~= "" and (root .. "/") or "") .. c.path)
+  if bnr ~= -1 and vim.api.nvim_buf_is_loaded(bnr) then
+    pcall(render.render, core, bnr)
+  end
+end
+
+-- Abre la quickfix con la lista de comentarios que devuelve `provider()`.
+-- Sobre una entrada: <CR> ir (y cerrar), d borrar, x resolver/des-resolver,
+-- q cerrar. Una winbar arriba muestra los atajos. `provider` se re-consulta
+-- para refrescar la lista tras d/x.
+local function open_list(core, provider, title)
+  local ctx = {}
+  local ftitle = "review.nvim" .. (title and (": " .. title) or "")
+  local function items_now()
+    ctx.comments = sorted(provider())
+    return to_qf_items(core, ctx.comments)
+  end
+
+  local items = items_now()
   if #items == 0 then
     vim.notify("review.nvim: no hay comentarios" .. (title and (" en " .. title) or ""), vim.log.levels.INFO)
     return
   end
-  vim.fn.setqflist({}, " ", { title = "review.nvim" .. (title and (": " .. title) or ""), items = items })
+  vim.fn.setqflist({}, " ", { title = ftitle, items = items })
   vim.cmd("copen")
 
-  local qbuf = vim.api.nvim_get_current_buf()
-  -- Enter: saltar a la entrada bajo el cursor y cerrar el panel.
+  local qwin = vim.api.nvim_get_current_win()
+  local qbuf = vim.api.nvim_win_get_buf(qwin)
+  -- Barra de atajos visible.
+  vim.wo[qwin].winbar =
+    "%#Title# review.nvim %* ‹CR› ir · ‹d› borrar · ‹x› resolver · ‹q› cerrar"
+
+  local function comment_at_cursor()
+    return ctx.comments[vim.fn.line(".")]
+  end
+  local function refresh()
+    local its = items_now()
+    if #its == 0 then
+      vim.cmd("cclose")
+      return
+    end
+    local line = vim.fn.line(".")
+    vim.fn.setqflist({}, "r", { title = ftitle, items = its })
+    pcall(vim.api.nvim_win_set_cursor, qwin, { math.min(line, #its), 0 })
+  end
+
   vim.keymap.set("n", "<CR>", function()
     local idx = vim.fn.line(".")
     vim.cmd("cclose")
     pcall(vim.cmd, idx .. "cc")
   end, { buffer = qbuf, nowait = true, desc = "review.nvim: ir al comentario y cerrar" })
-  -- q: cerrar el panel.
   vim.keymap.set("n", "q", "<Cmd>cclose<CR>", { buffer = qbuf, nowait = true, desc = "review.nvim: cerrar lista" })
+  vim.keymap.set("n", "d", function()
+    local c = comment_at_cursor()
+    if not c then return end
+    core.state.remove(c.id)
+    core.state.persist()
+    rerender_file(core, c)
+    refresh()
+  end, { buffer = qbuf, nowait = true, desc = "review.nvim: borrar comentario" })
+  vim.keymap.set("n", "x", function()
+    local c = comment_at_cursor()
+    if not c then return end
+    core.state.update(c.id, { resolved = not c.resolved })
+    core.state.persist()
+    rerender_file(core, c)
+    refresh()
+  end, { buffer = qbuf, nowait = true, desc = "review.nvim: resolver/des-resolver" })
 end
 
 -- Re-renderiza los comentarios en todos los buffers cargados (tras un toggle).
@@ -69,14 +120,14 @@ function M.setup(core, opts)
   local leader = opts.leader or "<leader>r"
 
   local function edit() mode.edit_here(core) end
-  local function list_all() open_list(core, core.state.all(), nil) end
+  local function list_all() open_list(core, function() return core.state.all() end, nil) end
   local function list_file()
     local rel = core.git.rel_path(0)
     if not rel then
       vim.notify("review.nvim: el buffer actual no pertenece al repo", vim.log.levels.WARN)
       return
     end
-    open_list(core, core.state.for_path(rel), rel)
+    open_list(core, function() return core.state.for_path(rel) end, rel)
   end
   local function toggle_hidden()
     render.hidden = not render.hidden
