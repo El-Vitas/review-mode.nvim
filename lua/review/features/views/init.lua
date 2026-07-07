@@ -1,73 +1,71 @@
 local inline = require("review.features.views.inline")
 local split = require("review.features.views.split")
 
+-- Modo de vista GLOBAL (estilo VSCode): el modo (normal/inline/split) aplica a
+-- TODOS los archivos. Al entrar a un archivo se re-aplica el modo actual; en
+-- split, ambas columnas siguen al archivo activo.
 local M = {}
-M.mode = {}
+M.mode = "normal"
 
 local VALID_MODES = { normal = true, inline = true, split = true }
+local applying = false
 
-local function clear_current(core, bufnr, current)
-  if current == "inline" then
-    inline.clear(core, bufnr)
-  elseif current == "split" then
-    split.close(core, bufnr)
-  end
+-- Aplica el modo global a la ventana/buffer ACTUAL (la de edición).
+local function apply_current(core)
+  if applying then return end
+  applying = true
+  local ok, err = pcall(function()
+    local buf = vim.api.nvim_get_current_buf()
+    if split.is_scratch(buf) then return end -- ignorar el panel HEAD
+    if M.mode == "inline" then
+      split.teardown()
+      if vim.bo[buf].buftype == "" then inline.render(core, buf) end
+    elseif M.mode == "split" then
+      inline.clear(core, buf)
+      split.sync(core)
+    else -- normal
+      inline.clear(core, buf)
+      split.teardown()
+    end
+  end)
+  applying = false
+  if not ok then vim.notify("review.nvim views: " .. tostring(err), vim.log.levels.DEBUG) end
 end
 
-local function apply(core, bufnr, mode)
-  if mode == "inline" then
-    inline.render(core, bufnr)
-  elseif mode == "split" then
-    split.open(core, bufnr)
-  end
-  -- "normal": nada que aplicar, el buffer se ve como siempre.
-end
-
---- Resuelve el buffer efectivo: si `bufnr` es el panel HEAD (scratch) de un
---- split, devuelve el archivo real dueño; si no, el mismo bufnr. Así los
---- comandos ejecutados desde la ventana izquierda actúan sobre el archivo.
-function M.resolve(bufnr)
-  return split.owner_of(bufnr) or bufnr
-end
-
---- Cambia el modo de vista de bufnr. Limpia la vista previa antes de aplicar
---- la nueva. Idempotente si mode == modo actual. No-op si mode es inválido.
-function M.set(core, bufnr, mode)
+--- Cambia el modo de vista GLOBAL y lo aplica al archivo actual. No-op si el
+--- modo es inválido o ya es el actual.
+function M.set(core, mode)
   if not VALID_MODES[mode] then return end
-  bufnr = M.resolve(bufnr)
-  local current = M.mode[bufnr] or "normal"
-  if current == mode then return end
-
-  clear_current(core, bufnr, current)
-  apply(core, bufnr, mode)
-  M.mode[bufnr] = mode
-
-  core.events.emit("view:changed", { bufnr = bufnr, mode = mode })
+  if M.mode == mode then return end
+  M.mode = mode
+  apply_current(core)
+  core.events.emit("view:changed", { mode = mode })
 end
 
 function M.setup(core, opts)
-  M.mode = {}
+  M.mode = "normal"
   local group = vim.api.nvim_create_augroup("ReviewViews", { clear = true })
-  -- Limpiar el estado por-buffer cuando el buffer se destruye, para que
-  -- Neovim no recicle su bufnr con un modo heredado (bug de estado obsoleto).
-  vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
+
+  -- Al entrar a un archivo, re-aplicar el modo global (global como VSCode).
+  vim.api.nvim_create_autocmd({ "BufWinEnter", "BufEnter" }, {
     group = group,
     callback = function(a)
-      M.mode[a.buf] = nil
-      split.close(core, a.buf)
+      if M.mode == "normal" then return end
+      if vim.bo[a.buf].buftype ~= "" or split.is_scratch(a.buf) then return end
+      vim.schedule(function() apply_current(core) end)
     end,
   })
-  -- Re-render en vivo del modo inline: al editar, recomputa el diff (HEAD vs
-  -- buffer en memoria) y repinta, para que los highlights sigan los cambios sin
-  -- guardar. (El modo split usa diff nativo, que se re-diffea solo.)
+
+  -- Re-render en vivo del modo inline al editar (el split nativo se re-diffea solo).
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
     group = group,
     callback = function(a)
-      if M.mode[a.buf] == "inline" then
-        inline.render(core, a.buf)
+      if M.mode == "inline" and vim.bo[a.buf].buftype == "" then
+        pcall(inline.render, core, a.buf)
       end
     end,
   })
+
   local commands = require("review.features.views.commands")
   commands.setup(core, opts, M)
 end

@@ -3,9 +3,9 @@ local views = require("review.features.views")
 local function fake_core()
   local emitted = {}
   return {
-    ns = { views = 1 },
+    ns = { views = vim.api.nvim_create_namespace("review.test.views") },
     git = {
-      rel_path = function() return nil end, -- fuera de git: inline/split serán no-op seguro
+      rel_path = function() return nil end, -- fuera de git: inline/split no-op seguro
       root = function() return nil end,
       head_content = function() return nil end,
     },
@@ -16,50 +16,49 @@ local function fake_core()
   }
 end
 
-describe("views.set", function()
-  local core, bufnr
+describe("views.set (modo global)", function()
+  local core
 
   before_each(function()
     core = fake_core()
-    views.mode = {}
-    bufnr = vim.api.nvim_create_buf(false, true)
+    views.mode = "normal"
   end)
 
-  it("normal por defecto si nunca se seteó", function()
-    assert.is_nil(views.mode[bufnr])
+  it("normal por defecto", function()
+    assert.are.equal("normal", views.mode)
   end)
 
-  it("set aplica y guarda el modo, emite view:changed", function()
-    views.set(core, bufnr, "inline")
-    assert.are.equal("inline", views.mode[bufnr])
+  it("set aplica y guarda el modo global, emite view:changed", function()
+    views.set(core, "inline")
+    assert.are.equal("inline", views.mode)
     assert.are.equal(1, #core._emitted)
     assert.are.equal("view:changed", core._emitted[1].name)
-    assert.are.same({ bufnr = bufnr, mode = "inline" }, core._emitted[1].payload)
+    assert.are.same({ mode = "inline" }, core._emitted[1].payload)
   end)
 
-  it("togglear al mismo modo es idempotente (no reemite)", function()
-    views.set(core, bufnr, "inline")
-    views.set(core, bufnr, "inline")
+  it("setear el mismo modo es idempotente (no reemite)", function()
+    views.set(core, "inline")
+    views.set(core, "inline")
     assert.are.equal(1, #core._emitted)
   end)
 
-  it("cambiar de inline a split limpia inline y aplica split", function()
-    views.set(core, bufnr, "inline")
-    views.set(core, bufnr, "split")
-    assert.are.equal("split", views.mode[bufnr])
+  it("cambiar de inline a split cambia el modo y reemite", function()
+    views.set(core, "inline")
+    views.set(core, "split")
+    assert.are.equal("split", views.mode)
     assert.are.equal(2, #core._emitted)
   end)
 
-  it("mode invalido no cambia el estado", function()
-    views.set(core, bufnr, "inline")
-    views.set(core, bufnr, "bogus")
-    assert.are.equal("inline", views.mode[bufnr])
+  it("modo inválido no cambia el estado", function()
+    views.set(core, "inline")
+    views.set(core, "bogus")
+    assert.are.equal("inline", views.mode)
     assert.are.equal(1, #core._emitted)
   end)
 
-  it("volver a normal limpia la vista previa", function()
-    views.set(core, bufnr, "inline")
-    views.set(core, bufnr, "normal")
-    assert.are.equal("normal", views.mode[bufnr])
+  it("volver a normal", function()
+    views.set(core, "inline")
+    views.set(core, "normal")
+    assert.are.equal("normal", views.mode)
   end)
 end)

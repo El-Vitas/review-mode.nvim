@@ -1,121 +1,110 @@
--- Vista SPLIT side-by-side usando el MODO DIFF NATIVO de Neovim (`:diffthis`).
--- No es diffview (el plugin): es el diff incorporado, que alinea ambos lados con
--- líneas de relleno (como VSCode/GitHub), resalta add/change/delete, sincroniza
--- scroll y mouse por hunks, y re-diffea en vivo al editar — todo nativo.
---
--- Estado POR BUFFER: `_panels[bufnr] = { win = <left_win>, buf = <scratch>, main = <right_win> }`.
-local M = { _panels = {} }
+-- Vista SPLIT global (2 columnas), estilo VSCode, usando el MODO DIFF NATIVO.
+-- Hay UNA sola sesión de split: un panel HEAD a la izquierda (scratch readonly,
+-- con `winfixbuf` para que NO se le puedan abrir archivos) y la ventana real de
+-- edición a la derecha. Al cambiar de archivo en la ventana real, el panel HEAD
+-- se actualiza al HEAD de ese archivo (o se cierra si el archivo no tiene HEAD).
+local diff = require("review.features.views.diff")
 
--- Asegura en `diffopt` las opciones que dan la alineación estilo VSCode:
--- `linematch` empareja líneas comunes DENTRO de un bloque cambiado (sin esto,
--- Neovim apila el bloque borrado y el agregado sin alinearlos); `histogram` e
--- `indent-heuristic` es el mismo algoritmo que usa VSCode; `filler` muestra las
--- líneas de relleno para que ambos lados calcen. Preserva las flags del usuario.
+local M = {}
+M._session = nil -- { left_win, buf = <scratch>, main_win }
+
+-- Alinea línea-a-línea estilo VSCode (linematch/histogram), preservando flags.
 local function ensure_diffopt()
   local parts = vim.split(vim.o.diffopt, ",", { trimempty = true })
   local has = {}
-  for _, p in ipairs(parts) do
-    has[p:match("^([%w%-]+)") or p] = true
-  end
+  for _, p in ipairs(parts) do has[p:match("^([%w%-]+)") or p] = true end
   local add = {}
   if not has["internal"] then add[#add + 1] = "internal" end
   if not has["filler"] then add[#add + 1] = "filler" end
   if not has["linematch"] then add[#add + 1] = "linematch:60" end
   if not has["algorithm"] then add[#add + 1] = "algorithm:histogram" end
   if not has["indent-heuristic"] then add[#add + 1] = "indent-heuristic" end
-  if #add > 0 then
-    vim.o.diffopt = vim.o.diffopt .. "," .. table.concat(add, ",")
+  if #add > 0 then vim.o.diffopt = vim.o.diffopt .. "," .. table.concat(add, ",") end
+end
+
+--- ¿Es `bufnr` el scratch del panel HEAD?
+function M.is_scratch(bufnr)
+  return M._session ~= nil and M._session.buf == bufnr
+end
+
+local function diffoff_win(win)
+  if win and vim.api.nvim_win_is_valid(win) then
+    pcall(vim.api.nvim_win_call, win, function() vim.cmd("diffoff") end)
+    pcall(function()
+      vim.wo[win].foldenable = true
+      vim.wo[win].fillchars = ""
+    end)
   end
 end
 
---- Devuelve el bufnr real dueño de un buffer scratch de panel HEAD (o nil).
---- Permite que los comandos ejecutados DESDE el panel izquierdo actúen sobre
---- el archivo real, no sobre el scratch.
---- @param scratch_bufnr integer
---- @return integer|nil
-function M.owner_of(scratch_bufnr)
-  for real, p in pairs(M._panels) do
-    if p.buf == scratch_bufnr then return real end
+--- Cierra la sesión de split (saca el diff de la ventana real y cierra el HEAD).
+function M.teardown()
+  local s = M._session
+  M._session = nil
+  if not s then return end
+  diffoff_win(s.main_win)
+  if s.left_win and vim.api.nvim_win_is_valid(s.left_win) then
+    pcall(vim.api.nvim_win_close, s.left_win, true) -- scratch: bufhidden=wipe
   end
-  return nil
 end
 
---- Abre el panel izquierdo con el contenido HEAD del archivo del buffer actual,
---- en modo diff nativo contra el buffer real (derecha, editable).
---- Avisa y no abre nada si el archivo no tiene HEAD (nuevo / fuera de git).
-function M.open(core, bufnr)
-  local relpath = core.git.rel_path(bufnr)
-  if not relpath then
-    vim.notify("review.nvim: buffer is not in the repo, cannot open split", vim.log.levels.WARN)
-    return
-  end
-
-  -- Raíz resuelta desde el buffer (no desde el cwd) para que HEAD salga del
-  -- repo correcto aunque el cwd de nvim esté en otro lado.
-  local root = core.git.root(bufnr)
-  local head_lines = core.git.head_content(relpath, root)
-  if not head_lines then
-    vim.notify(
-      "review.nvim: '" .. relpath .. "' has no HEAD version (new file)",
-      vim.log.levels.WARN
-    )
-    return
-  end
-
-  M.close(core, bufnr) -- cierra un panel previo de ESTE buffer, si lo hubiera
-
-  ensure_diffopt() -- alineación línea-a-línea estilo VSCode
-
-  local ft = vim.bo[bufnr].filetype
-  local target_win = vim.api.nvim_get_current_win()
-
-  -- Panel HEAD a la izquierda.
+-- Crea el panel HEAD (izquierda) para la ventana `main_win`.
+local function create_pane(main_win)
+  vim.api.nvim_set_current_win(main_win)
   vim.cmd("leftabove vsplit")
   local left_win = vim.api.nvim_get_current_win()
-
   local scratch = vim.api.nvim_create_buf(false, true)
   vim.bo[scratch].buftype = "nofile"
   vim.bo[scratch].bufhidden = "wipe"
-  vim.bo[scratch].modifiable = true
-  vim.api.nvim_buf_set_lines(scratch, 0, -1, false, head_lines)
-  vim.bo[scratch].modifiable = false
-  vim.bo[scratch].readonly = true
-  if ft and ft ~= "" then vim.bo[scratch].filetype = ft end -- syntax highlighting
-  pcall(vim.api.nvim_buf_set_name, scratch, "review://head/" .. relpath)
   vim.api.nvim_win_set_buf(left_win, scratch)
-
-  -- Modo diff nativo en ambas ventanas: alinea con relleno, resalta y
-  -- sincroniza scroll/mouse. Re-diffea solo al editar el buffer real.
-  vim.api.nvim_win_call(left_win, function() vim.cmd("diffthis") end)
-  vim.api.nvim_win_call(target_win, function() vim.cmd("diffthis") end)
-  -- Mostrar TODAS las líneas (sin plegar los tramos sin cambios, estilo VSCode).
+  pcall(function() vim.wo[left_win].winfixbuf = true end) -- no abrir archivos acá
   vim.wo[left_win].foldenable = false
-  vim.wo[target_win].foldenable = false
-  -- Relleno diagonal (rayado) en vez de las líneas de guiones por defecto.
   vim.wo[left_win].fillchars = "diff:╱"
-  vim.wo[target_win].fillchars = "diff:╱"
-
-  M._panels[bufnr] = { win = left_win, buf = scratch, main = target_win }
-
-  -- Volver el foco al archivo real; su posición de cursor se preserva.
-  vim.api.nvim_set_current_win(target_win)
+  return { left_win = left_win, buf = scratch, main_win = main_win }
 end
 
---- Cierra el panel izquierdo de HEAD del buffer `bufnr` si está abierto y
---- saca el modo diff del buffer real. Idempotente.
-function M.close(core, bufnr)
-  local p = M._panels[bufnr]
-  if p then
-    if p.main and vim.api.nvim_win_is_valid(p.main) then
-      vim.api.nvim_win_call(p.main, function() vim.cmd("diffoff") end)
-      vim.wo[p.main].foldenable = true
-      vim.wo[p.main].fillchars = "" -- restaurar relleno por defecto
-    end
-    if p.win and vim.api.nvim_win_is_valid(p.win) then
-      pcall(vim.api.nvim_win_close, p.win, true)
-    end
+--- Sincroniza el panel HEAD con el archivo de la ventana ACTUAL (la de edición).
+--- Crea la sesión si hace falta; la cierra si el archivo no tiene HEAD o no está
+--- en el repo (queda en una sola columna).
+function M.sync(core)
+  local cur = vim.api.nvim_get_current_win()
+  local s = M._session
+  if s and cur == s.left_win then return end -- no actuar desde el panel HEAD
+
+  local buf = vim.api.nvim_win_get_buf(cur)
+  if vim.bo[buf].buftype ~= "" then return end -- ventana especial
+
+  local rel = core.git.rel_path(buf)
+  if not rel then M.teardown(); return end
+  local root = core.git.root(buf)
+  local head = core.git.head_content(rel, root)
+  if not head then M.teardown(); return end -- sin HEAD: una sola columna
+
+  ensure_diffopt()
+
+  if not (s and s.left_win and vim.api.nvim_win_is_valid(s.left_win)) then
+    s = create_pane(cur)
+    M._session = s
+  else
+    s.main_win = cur
   end
-  M._panels[bufnr] = nil
+
+  -- Rellenar el scratch con el HEAD del archivo actual.
+  local scratch = s.buf
+  vim.bo[scratch].modifiable = true
+  vim.api.nvim_buf_set_lines(scratch, 0, -1, false, head)
+  vim.bo[scratch].modifiable = false
+  vim.bo[scratch].readonly = true
+  local ft = vim.bo[buf].filetype
+  if ft and ft ~= "" then vim.bo[scratch].filetype = ft end
+  pcall(vim.api.nvim_buf_set_name, scratch, "review://head/" .. rel)
+
+  -- Diff en ambas ventanas.
+  pcall(vim.api.nvim_win_call, s.left_win, function() vim.cmd("diffthis") end)
+  pcall(vim.api.nvim_win_call, cur, function() vim.cmd("diffthis") end)
+  vim.wo[cur].foldenable = false
+  vim.wo[cur].fillchars = "diff:╱"
+  vim.api.nvim_set_current_win(cur)
 end
 
 return M

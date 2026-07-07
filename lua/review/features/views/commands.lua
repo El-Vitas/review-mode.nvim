@@ -21,25 +21,18 @@ function M.setup(core, opts, views_mod)
       vim.notify("usage: :ReviewView {normal|inline|split}", vim.log.levels.ERROR)
       return
     end
-    views_mod.set(core, vim.api.nvim_get_current_buf(), mode)
+    views_mod.set(core, mode)
   end
 
-  local ucmd_opts = {
-    nargs = 1,
-    complete = function() return ORDER end,
-  }
-  -- Comando largo + alias corto, ambos comandos REALES. La minúscula `rv`
-  -- la resuelve plugin/review.lua (core Task 7) vía cnoreabbrev → Rv.
+  local ucmd_opts = { nargs = 1, complete = function() return ORDER end }
+  -- Comando largo + alias corto (ambos reales). La minúscula `rv` la resuelve
+  -- plugin/review.lua vía cnoreabbrev → Rv.
   vim.api.nvim_create_user_command("ReviewView", run, ucmd_opts)
   vim.api.nvim_create_user_command("Rv", run, vim.deepcopy(ucmd_opts))
 
-  -- Comandos directos por modo (sin argumento), más cómodos que `:Rv split`.
-  -- Alias cortos Rvn/Rvi/Rvs; las minúsculas rvn/rvi/rvs las resuelve
-  -- plugin/review.lua vía cnoreabbrev.
+  -- Comandos directos por modo (globales), más cómodos que `:Rv split`.
   local function set_mode(mode)
-    return function()
-      views_mod.set(core, vim.api.nvim_get_current_buf(), mode)
-    end
+    return function() views_mod.set(core, mode) end
   end
   local direct = { normal = "Normal", inline = "Inline", split = "Split" }
   for mode, suffix in pairs(direct) do
@@ -47,10 +40,9 @@ function M.setup(core, opts, views_mod)
     vim.api.nvim_create_user_command("Rv" .. suffix:sub(1, 1):lower(), set_mode(mode), {})
   end
 
+  -- Ciclar el modo global.
   vim.keymap.set("n", leader .. "v", function()
-    local bufnr = views_mod.resolve(vim.api.nvim_get_current_buf())
-    local current = views_mod.mode[bufnr] or "normal"
-    views_mod.set(core, bufnr, next_mode(current))
+    views_mod.set(core, next_mode(views_mod.mode))
   end, { desc = "review.nvim: cycle view normal/inline/split" })
 end
 
