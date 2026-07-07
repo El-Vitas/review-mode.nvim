@@ -57,17 +57,14 @@ function M.setup(core, opts)
       split.close(core, a.buf)
     end,
   })
-  -- Re-render en vivo: al editar, recomputa el diff (HEAD vs buffer en memoria)
-  -- y repinta la vista activa, para que los highlights sigan los cambios sin
-  -- guardar. TextChangedI cubre el modo insert; TextChanged el modo normal.
+  -- Re-render en vivo del modo inline: al editar, recomputa el diff (HEAD vs
+  -- buffer en memoria) y repinta, para que los highlights sigan los cambios sin
+  -- guardar. (El modo split usa diff nativo, que se re-diffea solo.)
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
     group = group,
     callback = function(a)
-      local mode = M.mode[a.buf]
-      if mode == "inline" then
+      if M.mode[a.buf] == "inline" then
         inline.render(core, a.buf)
-      elseif mode == "split" then
-        split.refresh(core, a.buf)
       end
     end,
   })
