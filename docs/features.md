@@ -77,10 +77,32 @@ los folds** (para no compactar líneas nunca).
 - `:ReviewYankFile` / `:Ryf` (archivo actual), `:ReviewYankAll` / `:Rya`
   (todos) → copian al registro `+`.
 
-## agent — puente RPC nativo (PENDIENTE)
+## agent — puente RPC nativo + reconciliación AUTO
 
-Plan escrito en `plans/05-agent.md`, NO implementado. Expondría `_G.ReviewAgent`
-(list/add/resolve/delete sobre `core.state`) para que un agente externo hable
-por el RPC nativo de Neovim (`--remote-expr`). Deshabilitado por defecto
-(`opts.enabled`), superficie de escritura remota.
+Implementado. **Deshabilitado por defecto** (`features.agent = { enabled = true }`;
+expone superficie de escritura remota). Ver el protocolo completo en
+`plans/05-agent.md`.
+
+- **Transporte**: RPC nativo de Neovim (`--remote-expr`), sin sockets propios ni
+  dependencias. El agente usa el binario `nvim` como cliente contra `v:servername`.
+- **Modelo**: el agente escribe **código en disco** con sus propias herramientas
+  (FUERA de nvim); solo los **comentarios** pasan por nvim (`_G.ReviewAgent` sobre
+  `core.state`, única fuente de verdad).
+- **API `_G.ReviewAgent`**: `list(filter?)`, `get(id)`, `context(id)`, `add`,
+  `reply(parent_id, text)`, `resolve`/`unresolve`, `update`, `delete`,
+  `clean_resolved(path?)`, `is_modified(path)`, `notify_changed(path)`,
+  `servername()`. Todo serializable (JSON/primitivos), sin `_extmark_id`.
+- **Reconciliación AUTO** (`agent/reconcile.lua`): cuando el agente cambia un
+  archivo en disco, un watcher (`agent/watch.lua`, `vim.uv.fs_event` + debounce)
+  lo detecta y aplica el cambio al buffer como **patch mínimo por diff**
+  (`vim.diff` indices → `nvim_buf_set_lines` de abajo hacia arriba). Los extmarks
+  (y por lo tanto los comentarios) **se re-anclan solos por gravity**, sin
+  `:edit!`. Emite `buffer:reconciled`; `comments` reacciona re-sincronizando
+  posiciones y marcando `stale` los de anclaje incierto (por `anchor_text`).
+- **Conflicto**: si el buffer tiene cambios sin guardar, NO se pisa (reporta
+  `conflict`); el agente puede consultar `is_modified(path)` antes de editar.
+  `:ReviewReload` fuerza el patch del buffer actual como fallback manual.
+- **Autoría / threading**: comentarios con `author`, respuestas ligadas con
+  `reply_to`. `comments` los distingue visualmente (🤖 / violeta), muestra el hilo
+  en el peek y el sufijo `↩N`; la lista filtra por autor y respondido/sin responder.
 </content>

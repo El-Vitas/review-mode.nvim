@@ -24,7 +24,18 @@ al confirmar). El prefijo de keymaps es `opts.leader` (default `<leader>r`).
 `Esc` y `Enter` (en normal) envía; `q` cancela.
 
 **Dentro de la lista (quickfix):** `Enter` va al comentario y cierra · `d` borra
-· `x` resuelve · `f` filtra (todos/abiertos/resueltos) · `q` cierra.
+· `x` resuelve · `f` cicla el filtro (all → open → resolved → mine → agent →
+answered → unanswered) · `q` cierra. La lista muestra solo comentarios top-level
+(las respuestas viven en el hilo del padre, visible en el peek).
+
+## Agente (solo con `features.agent = { enabled = true }`)
+
+| Comando | Acción |
+|---|---|
+| `:ReviewReload` | recargar el buffer actual desde disco con patch mínimo (fallback manual del re-anclaje AUTO, p. ej. si había conflicto por cambios sin guardar) |
+
+El resto del control del agente es por RPC (`_G.ReviewAgent`, ver `docs/features.md`
+y `docs/plans/05-agent.md`), no por comandos de usuario.
 
 **Dentro de un peek flotante (si entrás):** `q`/`Esc` cierra ese · `Q` cierra todos.
 

@@ -71,6 +71,23 @@ function M.setup(core, opts)
     callback = function(args) mode.cleanup_buffer(args.buf) end,
   })
 
+  -- Al cambiar los comentarios (incluidos los que agrega/edita el agente por
+  -- RPC), re-renderizar los buffers de archivos del repo que estén abiertos, así
+  -- los comentarios nuevos obtienen su extmark ancla sin esperar a un BufEnter.
+  -- Se SINCRONIZA primero (sync_positions) para capturar cualquier drift del
+  -- extmark por ediciones sin guardar, y recién ahí se repinta: si no, render
+  -- reubicaría el extmark en el `lnum` viejo y perdería el desplazamiento por
+  -- gravity. sync_positions solo emite comments:changed si algo cambió → converge
+  -- (sin loop); render.render no muta estado.
+  core.events.on("comments:changed", function()
+    for _, b in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_is_loaded(b) and vim.bo[b].buftype == "" then
+        pcall(render.sync_positions, core, b)
+        pcall(render.render, core, b)
+      end
+    end
+  end)
+
   -- El agente (o cualquiera) editó el archivo en disco y reconcile aplicó el
   -- patch al buffer; re-sincronizamos posiciones y marcamos stale los dudosos.
   core.events.on("buffer:reconciled", function(payload)

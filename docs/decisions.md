@@ -152,8 +152,26 @@ español.
 no en cada feature. Los comandos capitalizados y sus alias `:Rx` son comandos
 reales; las minúsculas son abbrevs.
 
-### D21 — agent RPC pendiente
-La feature `agent` (puente RPC nativo) tiene plan escrito pero NO se implementó
-por decisión del usuario (no prioritario; expone superficie de escritura remota,
-iría deshabilitada por defecto).
+### D21 — agent RPC (implementado)
+La feature `agent` (puente RPC nativo) quedó implementada según `roadmap.md` §1 /
+`plans/05-agent.md`. Sigue **deshabilitada por defecto** (`features.agent.enabled`)
+por exponer superficie de escritura remota.
+
+### D22 — Reconciliación AUTO por patch mínimo por diff
+El código lo escribe el agente en disco (fuera de nvim); solo los comentarios
+pasan por nvim. Para que Neovim se entere de los cambios en disco y re-ancle los
+comentarios, se eligió **AUTO** (no `:edit!` manual como tuicr): un watcher
+`vim.uv.fs_event` con debounce detecta el cambio y aplica un **patch mínimo**
+(`vim.diff` result_type=indices → `nvim_buf_set_lines` de abajo hacia arriba). Así
+los extmarks se re-anclan solos por gravity, sin remapeo manual. Nunca se pisan
+cambios sin guardar (`modified` → `conflict`, con `:ReviewReload` como fallback).
+Malla de seguridad: `anchor_text` marca `stale` si la línea anclada dejó de
+coincidir. Coordinación con `comments` por el evento `buffer:reconciled` (regla de
+no-dependencia entre features intacta).
+
+### D23 — Re-render de comentarios en `comments:changed`
+`comments` se suscribe a `comments:changed` para re-renderizar los buffers del
+repo abiertos (antes solo lo hacía en `BufEnter`), así los comentarios que agrega
+el agente por RPC aparecen en vivo. Antes de repintar hace `sync_positions` para
+no reubicar extmarks en su `lnum` viejo y perder el desplazamiento por gravity.
 </content>

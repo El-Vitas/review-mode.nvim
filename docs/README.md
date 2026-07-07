@@ -42,6 +42,6 @@ nvim --headless -c "PlenaryBustedDirectory tests/ {minimal_init='tests/minimal_i
 
 ## Estado
 
-- **Implementado y estable:** core, comments, views (inline/split), sidebar, export.
-- **Pendiente (plan escrito, no implementado):** `agent` (puente RPC nativo) — ver `plans/05-agent.md`.
+- **Implementado y estable:** core, comments, views (inline/split), sidebar, export,
+  `agent` (RPC nativo + reconciliación AUTO por patch-diff, deshabilitado por defecto).
 </content>
