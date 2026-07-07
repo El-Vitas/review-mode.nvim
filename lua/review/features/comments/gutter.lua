@@ -5,6 +5,8 @@
 --
 -- La columna de signos solo admite 1 signo por línea, por eso el anidado y la
 -- continuidad del │ (cuando hay comentarios solapados) solo se logran así.
+local render = require("review.features.comments.render")
+
 local M = {}
 
 local PALETTE_N = 6
@@ -35,6 +37,7 @@ end
 
 --- String de statusline con los corchetes de la línea `lnum` del buffer `buf`.
 function M.brackets(buf, lnum)
+  if render.hidden then return "" end -- respetar el toggle ocultar/mostrar
   local entry = ranked_for(buf)
   if #entry.ranked == 0 then return "" end
 

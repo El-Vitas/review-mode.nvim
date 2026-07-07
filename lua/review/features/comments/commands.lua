@@ -81,6 +81,7 @@ function M.setup(core, opts)
   local function toggle_hidden()
     render.hidden = not render.hidden
     rerender_all(core)
+    pcall(vim.cmd, "redrawstatus!") -- refrescar el gutter (corchetes) también
     vim.notify("review.nvim: comentarios " .. (render.hidden and "ocultos" or "visibles"), vim.log.levels.INFO)
   end
   local function peek() mode.peek_here(core) end
