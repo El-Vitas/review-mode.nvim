@@ -93,10 +93,13 @@ end
 
 _G.ReviewStatusCol = M.render
 
+local OURS = "%!v:lua.ReviewStatusCol()"
+
 local function enable(win)
   if not vim.api.nvim_win_is_valid(win) then return end
+  if vim.wo[win].statuscolumn == OURS then return end -- ya activo (no guardar el nuestro como prev)
   if M._prev[win] == nil then M._prev[win] = vim.wo[win].statuscolumn end
-  vim.wo[win].statuscolumn = "%!v:lua.ReviewStatusCol()"
+  vim.wo[win].statuscolumn = OURS
 end
 
 local function disable(win)
@@ -110,16 +113,30 @@ function M.setup(core)
   M._core = core
 
   local grp = vim.api.nvim_create_augroup("ReviewGutter", { clear = true })
-  -- Activa el gutter propio en ventanas que muestran archivos del repo; lo
-  -- restaura en las demás (neo-tree, terminales, etc.).
-  vim.api.nvim_create_autocmd({ "BufWinEnter", "BufEnter", "WinEnter" }, {
+  -- Activa el gutter propio SOLO en ventanas con archivos normales del repo.
+  -- Los buffers especiales (neo-tree, terminal, quickfix, prompts…) se ignoran
+  -- por completo: no se les toca el statuscolumn ni se corre git, para no
+  -- interferir con esos plugins (p. ej. el toggle de neo-tree).
+  vim.api.nvim_create_autocmd({ "BufWinEnter", "WinEnter" }, {
     group = grp,
     callback = function(a)
+      local buf = a.buf
       local win = vim.api.nvim_get_current_win()
-      if core.git.rel_path(a.buf) then
-        enable(win)
+      local isfile = false
+      if vim.bo[buf].buftype == "" then -- solo archivos reales (no neo-tree/term/qf)
+        local ok, rel = pcall(core.git.rel_path, buf)
+        isfile = ok and rel ~= nil
+      end
+      if isfile then
+        pcall(enable, win)
       else
-        disable(win)
+        pcall(disable, win)
+        -- Los splits heredan window-locals: si esta ventana especial (neo-tree,
+        -- etc.) quedó con NUESTRO statuscolumn heredado, limpiarlo para no
+        -- correr nuestra función ahí ni interferir con ese plugin.
+        if vim.api.nvim_win_is_valid(win) and vim.wo[win].statuscolumn == OURS then
+          vim.wo[win].statuscolumn = ""
+        end
       end
     end,
   })
