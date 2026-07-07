@@ -169,6 +169,32 @@ comment = {
 6. `init.lua`: `_G.ReviewAgent`, `opts.enabled`, notificaciones.
 7. Docs del protocolo + ejemplos `--remote-expr`.
 
+### 1.8 Ideas de tuicr (referencia, no copiar)
+
+Revisado `~/Dev/tuicr-fork` (Rust). Valida gran parte de nuestro diseño y aporta:
+
+- **`author` free-form** (`src/model/comment.rs`): el agente pasa su nombre
+  (`--username "Claude …"`), el humano cae en `"user"`. Retro-compatible (JSON
+  viejo rehidrata como `"user"`). → Idéntico a nuestro campo `author`.
+- **Ancla por contenido** (`LineContext { new_line, old_line, content }`):
+  guardan el **texto** de la línea además del número. Es exactamente nuestra idea
+  de `anchor_text` para re-localizar tras un cambio en disco. → Adoptar.
+- **`line_range`** (start/end inclusive) para multi-línea. → Ya lo tenemos
+  (`lnum`/`end_lnum`).
+- **Tipos de comentario** (`Note`/`Suggestion`/`Issue`/`Praise`/`Custom`): opción
+  a futuro (no prioritario ahora).
+- **Lifecycle remoto** (`LocalDraft`/`PushedDraft`/`Submitted`, `remote_*_id`,
+  `commit_id`): es para integrar con PRs de GitHub. NO aplica a nuestro caso
+  (review local del working tree), pero muestra el patrón si algún día
+  integramos forge.
+
+**Diferencia clave de contexto:** tuicr revisa un **diff de PR**, así que ancla
+en espacio-de-diff (side Old/New + old/new lineno) contra un diff fijo. Nosotros
+revisamos el **working tree en vivo**, por eso usamos **extmarks** (que siguen la
+línea al editar en el buffer) + **remapeo por diff** y **ancla por contenido**
+cuando el cambio viene de disco (agente). Distinto contexto, misma familia de
+ideas.
+
 ---
 
 ## 2. Limpiar la config de Neovim
