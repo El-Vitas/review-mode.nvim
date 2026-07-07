@@ -18,11 +18,12 @@ local applying = false
 --    ROJA / VERDE completa.
 -- Override-ables.
 local function ensure_diff_hl()
+  -- Solo FONDO (sin fg ni bold, para no saturar).
   vim.api.nvim_set_hl(0, "ReviewDiffChange", { bg = "#44401d", default = true }) -- modificada: amarillo suave
-  vim.api.nvim_set_hl(0, "ReviewDiffDelLine", { bg = "#4a2732", default = true }) -- línea borrada entera
-  vim.api.nvim_set_hl(0, "ReviewDiffDelText", { bg = "#6e2b3a", fg = "#ed8796", bold = true, default = true }) -- texto quitado
-  vim.api.nvim_set_hl(0, "ReviewDiffAddLine", { bg = "#26382c", default = true }) -- línea agregada entera
-  vim.api.nvim_set_hl(0, "ReviewDiffAddText", { bg = "#2f5a38", fg = "#a6da95", bold = true, default = true }) -- texto agregado
+  vim.api.nvim_set_hl(0, "ReviewDiffDelLine", { bg = "#37202a", default = true }) -- línea borrada entera (rojo oscuro)
+  vim.api.nvim_set_hl(0, "ReviewDiffDelText", { bg = "#54232f", default = true }) -- texto quitado (rojo)
+  vim.api.nvim_set_hl(0, "ReviewDiffAddLine", { bg = "#21331f", default = true }) -- línea agregada entera (verde oscuro)
+  vim.api.nvim_set_hl(0, "ReviewDiffAddText", { bg = "#2c4a30", default = true }) -- texto agregado (verde)
   vim.api.nvim_set_hl(0, "ReviewDiffFiller", { bg = "#2a2b38", default = true }) -- relleno
 end
 
