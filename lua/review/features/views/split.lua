@@ -46,14 +46,46 @@ function M.owner_of(scratch_bufnr)
 end
 
 -- Activa/desactiva scroll + cursor sincronizados en una ventana. `scrollbind`
--- lo maneja Neovim a nivel nativo (sin loops ni tirones); combinado con el
--- relleno del HEAD (ambos paneles del mismo largo) y arrancando alineados en
--- la línea 1, se mantiene pegado con teclado y rueda del mouse.
+-- lo maneja Neovim a nivel nativo (sin loops ni tirones) y cubre el scroll por
+-- teclado; combinado con el relleno del HEAD (ambos paneles del mismo largo) y
+-- arrancando alineados en la línea 1, se mantiene pegado.
 local function set_bind(win, on)
   if win and vim.api.nvim_win_is_valid(win) then
     vim.wo[win].scrollbind = on
     vim.wo[win].cursorbind = on
   end
+end
+
+-- ¿`win` es una de las ventanas de algún panel de split activo?
+local function is_panel_win(win)
+  for _, p in pairs(M._panels) do
+    if p.win == win or p.main == win then return true end
+  end
+  return false
+end
+
+-- La rueda del mouse NO siempre dispara la propagación de `scrollbind`. Por eso,
+-- ante cualquier scroll (WinScrolled cubre mouse Y teclado) forzamos `syncbind`
+-- DESDE la ventana que se movió, de modo que la otra la siga. No hay
+-- realimentación: si ya están alineadas (paneles del mismo largo, offset 0),
+-- `syncbind` no mueve nada y no vuelve a disparar el evento. El flag `_syncing`
+-- corta cualquier reentrada dentro del mismo stack.
+local _syncing = false
+local function install_sync()
+  if M._sync_installed then return end
+  M._sync_installed = true
+  vim.api.nvim_create_autocmd("WinScrolled", {
+    group = vim.api.nvim_create_augroup("ReviewSplitSync", { clear = true }),
+    callback = function(args)
+      if _syncing then return end
+      local win = tonumber(args.match)
+      if not win or not vim.api.nvim_win_is_valid(win) then return end
+      if not is_panel_win(win) then return end
+      _syncing = true
+      pcall(vim.api.nvim_win_call, win, function() vim.cmd("syncbind") end)
+      _syncing = false
+    end,
+  })
 end
 
 --- Abre el panel izquierdo con el contenido HEAD del archivo del buffer actual.
@@ -117,6 +149,7 @@ function M.open(core, bufnr)
   pcall(vim.api.nvim_win_set_cursor, target_win, { 1, 0 })
   set_bind(left_win, true)
   set_bind(target_win, true)
+  install_sync() -- fuerza el sync también con la rueda del mouse
   vim.api.nvim_set_current_win(target_win)
   pcall(vim.cmd, "syncbind")
 end
