@@ -37,63 +37,76 @@ en disco NO mueve los extmarks del buffer).
 
 ### 1.3 Reconciliación: detectar cambios en disco y re-anclar comentarios
 
+**Decisión: AUTO** (recargar solo, sin que el usuario aprete nada) — es mil veces
+mejor UX. tuicr eligió manual (`:e`) porque re-fetchea diffs de PR remotos y no
+tiene extmarks; nosotros SÍ tenemos extmarks y control del buffer local, así que
+podemos hacer auto bien. El `:ReviewReload` manual queda como **fallback** para
+el único caso que auto no puede resolver solo (conflicto con cambios sin
+guardar). Para que auto quede sólido, hay que hacerlo así:
+
 **Comentarios (estado):** no hay concurrencia real. Los `--remote-expr` corren
-serializados en el event loop principal, intercalados con tus acciones → agente
-y usuario mutan `core.state` uno a la vez, sin data race. Cada mutación emite
-`comments:changed`, la UI se redibuja y se persiste.
+serializados en el event loop principal → agente y usuario mutan `core.state`
+uno a la vez, sin data race. Cada mutación emite `comments:changed` y persiste.
 
-**Cambios de código en disco (el punto delicado):**
+#### La técnica clave: aplicar el cambio de disco como PATCH mínimo al buffer
 
-1. **Detección.** `autoread` + un autocmd `FileChangedShell`/`FileChangedShellPost`
-   (o un `checktime` disparado por el agente vía RPC al terminar de editar, p. ej.
-   `ReviewAgent.notify_changed(path)`). Así Neovim sabe que el archivo cambió.
+El error naïve es hacer `:edit!` (recarga total): eso **destruye todos los
+extmarks** → hay que re-anclar a mano y siempre queda frágil. En cambio:
 
-2. **Buffer SIN cambios sin guardar (caso normal):** el usuario está revisando
-   (leyendo/comentando), no editando código → el buffer no está `modified`. Se
-   recarga automáticamente. Pero al recargar **se pierden los extmarks**, así que
-   hay que **re-anclar** los comentarios:
-   - Antes de recargar, capturar las líneas viejas del buffer.
-   - Después de recargar, tomar las líneas nuevas (del disco).
-   - Diffear viejo vs nuevo (`vim.diff`) y **remapear el `lnum`/`end_lnum` de cada
-     comentario** a través de los hunks: los comentarios en zonas sin cambios se
-     corren limpio; los que caen DENTRO de una zona modificada por el agente se
-     marcan como **`stale` (posiblemente desubicado)** con un indicador visual,
-     para que los revises.
-   - Ancla de respaldo por **contenido**: guardar el texto de la línea comentada
-     (`anchor_text`) para relocalizar por búsqueda si el diff no alcanza.
-   - Luego re-render + persist con las posiciones nuevas.
+1. Leer el contenido NUEVO del disco (sin tocar el buffer todavía).
+2. Diffear **líneas actuales del buffer (viejo) vs disco (nuevo)** con `vim.diff`
+   (`result_type = "indices"`) → hunks.
+3. Aplicar **solo esos hunks** al buffer con `nvim_buf_set_lines`/`set_text`
+   (de abajo hacia arriba para no invalidar índices).
 
-3. **Buffer CON cambios sin guardar (conflicto real):** vos editaste código y no
-   guardaste, y el agente tocó el mismo archivo en disco → divergieron. Neovim
-   **no debe pisar** tus cambios. Estrategia:
-   - `FileChangedShell` con buffer `modified` → NO auto-recargar; avisar y ofrecer
-     opciones: ver el diff (buffer vs disco), recargar descartando lo tuyo, o
-     mantener lo tuyo.
-   - **Prevención:** el agente puede preguntar por RPC
-     `ReviewAgent.is_modified(path)` antes de editar; si está `modified`, que evite
-     ese archivo o te avise. Es lo ideal: como el agente escribe libre en disco,
-     que primero consulte si ese archivo lo estás editando sin guardar.
+Resultado: los extmarks de las zonas SIN cambios **no se mueven**, y en las zonas
+con inserción/borrado **se corren solos** — exactamente como si el agente hubiera
+editado dentro del buffer. Es decir, **los comentarios se re-anclan automáticamente
+vía extmarks, sin remapeo manual**. Además:
+- El buffer queda `nomodified` (coincide con disco).
+- Las vistas de diff (inline/split) recomputan solas (comparan buffer vs HEAD).
+- Queda en el undo tree (podés deshacer el cambio del agente con `u`).
 
-4. **Vistas de diff:** tras la recarga, el buffer = contenido nuevo del disco;
-   inline/split recomputan contra HEAD solos (comparan buffer vs HEAD). Sin
-   trabajo extra.
+#### Detección (que sea confiable, no dependa de foco)
+
+`autoread` + `FileChangedShell` solo chequean en ciertos eventos (foco,
+CursorHold) → NO alcanza si el agente edita en background. Por eso:
+- **Watcher activo:** `vim.uv.fs_event` (o `fs_poll` de fallback) por cada buffer
+  de archivo del repo abierto. Al detectar cambio → correr el patch (arriba),
+  con **debounce** (~100–200 ms) para agrupar ráfagas de escritura del agente.
+- **Señal del agente:** `ReviewAgent.notify_changed(path)` fuerza el patch de ese
+  path de inmediato (camino explícito y barato). No obligatorio, pero acelera.
+- Cerrar el watcher en `BufWipeout`/`BufDelete` (sin fugas, como los otros caches).
+
+#### Conflicto: buffer CON cambios sin guardar
+
+Único caso donde auto NO debe actuar solo: vos editaste y no guardaste, y el
+agente tocó ese archivo en disco → divergieron. **Nunca pisar lo tuyo:**
+- Si el buffer está `modified` → NO aplicar el patch. Avisar (`vim.notify`) y
+  ofrecer: ver diff (buffer vs disco), aplicar de todos modos, o ignorar. Acá sí
+  entra el `:ReviewReload` manual.
+- **Prevención:** el agente consulta `ReviewAgent.is_modified(path)` ANTES de
+  editar; como escribe libre en disco, que evite (o avise sobre) los archivos que
+  estás editando sin guardar.
+
+#### Comentarios que caen dentro de un cambio
+
+Aún con el patch, un comentario cuya línea el agente reescribió por completo
+puede quedar mal ubicado. Malla de seguridad:
+- **`anchor_text`** (idea de tuicr, `LineContext.content`): guardar el texto de la
+  línea comentada; si tras el patch el extmark ya no cae sobre ese texto (ni
+  cerca), marcar el comentario **`stale`** con indicador visual para que lo
+  revises, en vez de mostrarlo confiado en el lugar equivocado.
+- Registrar el HEAD-SHA de creación para poder avisar si el HEAD cambió mucho.
+
+#### Resumen del flujo auto
+disco cambia → watcher (debounce) o `notify_changed` → si buffer `modified`:
+avisar + ofrecer (no pisar) · si no: patch mínimo por diff → extmarks se
+re-anclan solos → marcar `stale` los dudosos (por `anchor_text`) → `nomodified` →
+vistas recomputan. Todo sin que el usuario haga nada.
 
 **Notificación:** cuando el agente comenta/responde/resuelve, un `vim.notify`
 discreto (y opcional salto/decoración) para que sepas qué tocó.
-
-**Reload MANUAL (idea de tuicr):** tuicr no pelea con auto-reload; expone `:e`
-(alias `:reload`) = "reload diff files", que re-lee el working tree/diff y
-re-ancla. Es robusto y predecible. Nosotros haremos lo mismo:
-- Un comando `:ReviewReload [path]` (y el `notify_changed(path)` del agente lo
-  llama internamente) que: `checktime`/recarga el/los buffer(s) afectados +
-  re-ancla los comentarios (diff viejo↔nuevo + ancla por contenido). Así el
-  auto-reload (`FileChangedShell`) es la vía cómoda, pero SIEMPRE hay un reload
-  manual/explícito como fallback confiable, y el agente dispara ese mismo camino.
-- **Keying a HEAD (idea de tuicr):** sus sesiones "live" embeben el short-SHA del
-  HEAD, así un commit nuevo = sesión fresca (no arrastra comentarios stale). Para
-  nosotros los comentarios viven sobre el working file (persisten entre commits),
-  pero conviene registrar contra qué HEAD se creó cada comentario, para poder
-  avisar/marcar `stale` si el HEAD cambió mucho.
 
 ### 1.4 API `_G.ReviewAgent` (propuesta)
 
@@ -176,8 +189,10 @@ comment = {
    (con defaults; retro-compatible).
 2. Render/gutter/peek: distinguir autor + mostrar hilos + marca `stale`.
 3. Lista: filtro por autor y por respondido/sin responder.
-4. Re-anclaje: autocmd `FileChangedShell` + remapeo de `lnum` por diff
-   (viejo vs nuevo) + ancla por contenido. (El corazón del flujo con el agente.)
+4. Re-anclaje AUTO (corazón del flujo): watcher (`vim.uv.fs_event`, debounce) +
+   `notify_changed` → **patch mínimo por diff** al buffer (extmarks se re-anclan
+   solos) → `anchor_text` + marca `stale` para los dudosos → conflicto si
+   `modified` (no pisar). `:ReviewReload` manual como fallback.
 5. `rpc.lua`: list/get/context/add/reply/resolve/unresolve/update/delete/
    clean_resolved + is_modified/notify_changed.
 6. `init.lua`: `_G.ReviewAgent`, `opts.enabled`, notificaciones.
