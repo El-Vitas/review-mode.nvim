@@ -5,8 +5,10 @@ local split = require("review.features.views.split")
 -- TODOS los archivos. Al entrar a un archivo se re-aplica el modo actual; en
 -- split, ambas columnas siguen al archivo activo.
 local M = {}
+-- Review es un modo PERMANENTE: normal/inline/split son sus 3 vistas, no hay
+-- "salir de review". Por eso review siempre está activo y "normal" es la vista
+-- por defecto.
 M.mode = "normal"
-M.active = false -- true una vez que el usuario elige un modo (recién ahí gestionamos folds)
 
 local VALID_MODES = { normal = true, inline = true, split = true }
 local applying = false
@@ -46,10 +48,10 @@ local function apply_current(core)
       inline.clear(core, buf)
       split.teardown()
     end
-    -- Con review activo, NUNCA compactar líneas: abrir los folds en la ventana
-    -- del archivo (en los 3 modos). Sin esto, un plugin de folds del usuario
-    -- (treesitter/ufo) mostraría "+-- N lines" tapando lo que se revisa.
-    if M.active and vim.bo[buf].buftype == "" then
+    -- Review NUNCA debe compactar líneas: abrir los folds en la ventana del
+    -- archivo del repo (en los 3 modos). Sin esto, un plugin de folds del
+    -- usuario (treesitter/ufo) mostraría "+-- N lines" tapando lo que se revisa.
+    if vim.bo[buf].buftype == "" and core.git.rel_path(buf) then
       pcall(function()
         vim.wo[win].foldenable = false
         vim.wo[win].foldlevel = 99
@@ -64,9 +66,7 @@ end
 --- modo es inválido o ya es el actual.
 function M.set(core, mode)
   if not VALID_MODES[mode] then return end
-  local was_active = M.active
-  M.active = true -- el usuario activó review (a partir de acá gestionamos folds)
-  if M.mode == mode and was_active then return end
+  if M.mode == mode then return end
   M.mode = mode
   apply_current(core)
   core.events.emit("view:changed", { mode = mode })
@@ -74,7 +74,6 @@ end
 
 function M.setup(core, opts)
   M.mode = "normal"
-  M.active = false
   local group = vim.api.nvim_create_augroup("ReviewViews", { clear = true })
 
   ensure_diff_hl()
@@ -87,13 +86,11 @@ function M.setup(core, opts)
     callback = function(a) inline.invalidate(a.buf) end,
   })
 
-  -- Al entrar a un archivo, re-aplicar el modo global (global como VSCode).
-  -- Corre solo si review está ACTIVO (el usuario ya eligió un modo); así no
-  -- tocamos nada —ni folds— antes de que active review.
+  -- Review es permanente: al entrar a cualquier archivo del repo se aplica la
+  -- vista actual (global, estilo VSCode) y se abren los folds.
   vim.api.nvim_create_autocmd({ "BufWinEnter", "BufEnter" }, {
     group = group,
     callback = function(a)
-      if not M.active then return end
       if vim.bo[a.buf].buftype ~= "" or split.is_scratch(a.buf) then return end
       vim.schedule(function() apply_current(core) end)
     end,
