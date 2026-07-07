@@ -25,18 +25,19 @@ function M.setup(core, opts)
   opts = opts or {}
   local leader = opts.leader or "<leader>r"
 
-  local function toggle() mode.toggle(core) end
+  local function edit() mode.edit_here(core) end
   local function list() open_quickfix(core) end
 
   -- Comando largo + alias corto (ambos comandos REALES). La versión en
   -- minúscula (`rcm`/`rl`) la resuelve `plugin/review.lua` (core Task 7)
   -- vía cnoreabbrev apuntando a estos comandos reales.
-  vim.api.nvim_create_user_command("ReviewCommentMode", toggle, {})
-  vim.api.nvim_create_user_command("Rcm", toggle, {})
+  -- :ReviewCommentMode/:Rcm = editar el comentario de la línea actual.
+  vim.api.nvim_create_user_command("ReviewCommentMode", edit, {})
+  vim.api.nvim_create_user_command("Rcm", edit, {})
   vim.api.nvim_create_user_command("ReviewList", list, {})
   vim.api.nvim_create_user_command("Rl", list, {})
 
-  vim.keymap.set("n", leader .. "r", function() mode.toggle(core) end, { desc = "Review: toggle comment mode" })
+  vim.keymap.set("n", leader .. "r", function() mode.edit_here(core) end, { desc = "Review: editar comentario de la línea" })
   vim.keymap.set("n", leader .. "c", function() mode.add_here(core, {}) end, { desc = "Review: add comment" })
   vim.keymap.set("v", leader .. "c", function() mode.add_here(core, {}) end, { desc = "Review: add comment (range)" })
   vim.keymap.set("n", leader .. "d", function() mode.delete_here(core) end, { desc = "Review: delete comment here" })
