@@ -1,0 +1,41 @@
+local store = require("review.core.store")
+local events = require("review.core.events")
+local state = require("review.core.state")
+
+describe("core.state", function()
+  before_each(function()
+    local tmp = vim.fn.tempname(); vim.fn.mkdir(tmp, "p")
+    store.root_fn = function() return tmp end
+    state._reset()
+  end)
+
+  it("add asigna defaults y emite comments:changed", function()
+    local fired = false
+    events.on("comments:changed", function() fired = true end)
+    local c = state.add({ path = "a.ts", lnum = 5, text = "x" })
+    assert.is_truthy(c.id); assert.is_false(c.resolved); assert.are.equal("user", c.author)
+    assert.are.equal(5, c.end_lnum)
+    vim.wait(50, function() return fired end)
+    assert.is_true(fired)
+  end)
+
+  it("persist + load round-trip", function()
+    state.add({ path = "a.ts", lnum = 1, text = "x" })
+    state.persist(); state._reset(); state.load()
+    assert.are.equal(1, #state.all())
+  end)
+
+  it("remove y update por id", function()
+    local c = state.add({ path = "a.ts", lnum = 1, text = "x" })
+    assert.is_true(state.update(c.id, { resolved = true }))
+    assert.is_true(state.by_id(c.id).resolved)
+    assert.is_true(state.remove(c.id))
+    assert.are.equal(0, #state.all())
+  end)
+
+  it("for_path filtra", function()
+    state.add({ path = "a.ts", lnum = 1, text = "x" })
+    state.add({ path = "b.ts", lnum = 1, text = "y" })
+    assert.are.equal(1, #state.for_path("a.ts"))
+  end)
+end)

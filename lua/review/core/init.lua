@@ -5,5 +5,6 @@ local M = {
   git = require("review.core.git"),
   events = require("review.core.events"),
   ns = require("review.core.ns"),
+  state = require("review.core.state"),
 }
 return M
