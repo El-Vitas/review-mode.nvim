@@ -3,21 +3,26 @@ local commands = require("review.features.comments.commands")
 
 local M = {}
 
--- Define los highlight groups del resaltado de rango, con `default = true` para
--- que el usuario pueda sobreescribirlos en su config. Se usan COLORES PROPIOS
--- (no `Visual`) para que un comentario no se confunda con una selección: fondo
--- ámbar tenue + barra lateral peach para abiertos, y gris tenue para resueltos.
--- Tonos pensados para temas oscuros (p. ej. catppuccin macchiato).
+-- Define los highlight groups, con `default = true` para que el usuario pueda
+-- sobreescribirlos. Se usan COLORES PROPIOS (azul, no `Visual` ni café) para no
+-- confundir un comentario con una selección. Tonos para temas oscuros
+-- (p. ej. catppuccin macchiato).
 local function ensure_hl()
-  vim.api.nvim_set_hl(0, "ReviewCommentLine", { bg = "#3a3320", default = true })
-  vim.api.nvim_set_hl(0, "ReviewCommentLineResolved", { bg = "#2a2b33", default = true })
-  vim.api.nvim_set_hl(0, "ReviewCommentSign", { fg = "#f5a97f", bold = true, default = true })
+  -- Resaltado del rango: fondo azul tenue + barra lateral azul.
+  vim.api.nvim_set_hl(0, "ReviewCommentLine", { bg = "#2c3a52", default = true })
+  vim.api.nvim_set_hl(0, "ReviewCommentLineResolved", { bg = "#2a2b38", default = true })
+  vim.api.nvim_set_hl(0, "ReviewCommentSign", { fg = "#8aadf4", bold = true, default = true })
   vim.api.nvim_set_hl(0, "ReviewCommentSignResolved", { fg = "#6e738d", default = true })
+  -- Badge al final de la línea: chip con fondo azul y bordecito (edge).
+  vim.api.nvim_set_hl(0, "ReviewCommentBadge", { bg = "#3b4b71", fg = "#cad3f5", default = true })
+  vim.api.nvim_set_hl(0, "ReviewCommentBadgeEdge", { bg = "#3b4b71", fg = "#8aadf4", default = true })
+  vim.api.nvim_set_hl(0, "ReviewCommentBadgeResolved", { bg = "#33343f", fg = "#8087a2", default = true })
+  vim.api.nvim_set_hl(0, "ReviewCommentBadgeEdgeResolved", { bg = "#33343f", fg = "#6e738d", default = true })
   -- Flotante del peek: fondo OPACO propio (para que no se vea transparente si
-  -- el tema tiene NormalFloat sin fondo), borde y título peach.
-  vim.api.nvim_set_hl(0, "ReviewPeekNormal", { bg = "#2a2d3d", fg = "#cad3f5", default = true })
-  vim.api.nvim_set_hl(0, "ReviewPeekBorder", { bg = "#2a2d3d", fg = "#f5a97f", default = true })
-  vim.api.nvim_set_hl(0, "ReviewPeekTitle", { bg = "#2a2d3d", fg = "#f5a97f", bold = true, default = true })
+  -- el tema tiene NormalFloat sin fondo), borde y título azul.
+  vim.api.nvim_set_hl(0, "ReviewPeekNormal", { bg = "#1e2030", fg = "#cad3f5", default = true })
+  vim.api.nvim_set_hl(0, "ReviewPeekBorder", { bg = "#1e2030", fg = "#8aadf4", default = true })
+  vim.api.nvim_set_hl(0, "ReviewPeekTitle", { bg = "#1e2030", fg = "#8aadf4", bold = true, default = true })
 end
 
 function M.setup(core, opts)

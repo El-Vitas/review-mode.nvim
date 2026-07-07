@@ -26,25 +26,34 @@ function M.render(core, bufnr)
     if end_lnum < lnum then lnum, end_lnum = end_lnum, lnum end
     local row = lnum - 1
     local text = c.text or ""
-    -- Preview de una línea (colapsa saltos) para el texto al final de la línea.
+    -- Badge compacto de una línea (colapsa saltos). Corto a propósito: el texto
+    -- completo se lee en el peek flotante (<leader>rp), no arrastrando una tira
+    -- larga al final de la línea.
     text = text:gsub("[\r\n]+", " ")
-    if #text > 60 then text = text:sub(1, 57) .. "..." end
+    if #text > 28 then text = text:sub(1, 25) .. "…" end
 
     local resolved = c.resolved
     local line_hl = resolved and "ReviewCommentLineResolved" or "ReviewCommentLine"
     local sign_hl = resolved and "ReviewCommentSignResolved" or "ReviewCommentSign"
-    local text_hl = resolved and "Comment" or "DiagnosticInfo"
-    local prefix = resolved and "✓ " or "💬 "
+    local badge_hl = resolved and "ReviewCommentBadgeResolved" or "ReviewCommentBadge"
+    local edge_hl = resolved and "ReviewCommentBadgeEdgeResolved" or "ReviewCommentBadgeEdge"
+    local icon = resolved and "✓" or "💬"
 
     -- Extmark ANCLA (primera línea): lleva end_row para rastrear el rango al
-    -- editar, la barra lateral (borde), el resaltado de línea y el preview al
-    -- final. Es el que usa sync_positions; para 1 línea, es el único.
+    -- editar, la barra lateral (borde), el resaltado de línea y un BADGE con
+    -- fondo y bordecito al final. Es el que usa sync_positions; para 1 línea,
+    -- es el único.
     local id = vim.api.nvim_buf_set_extmark(bufnr, core.ns.comments, row, 0, {
       end_row = end_lnum - 1,
       sign_text = "▌",
       sign_hl_group = sign_hl,
       line_hl_group = line_hl,
-      virt_text = { { prefix .. text, text_hl } },
+      virt_text = {
+        { "  ", "None" },
+        { "▏", edge_hl },
+        { " " .. icon .. " " .. text .. " ", badge_hl },
+        { "▕", edge_hl },
+      },
       virt_text_pos = "eol",
     })
     c._extmark_id = id
