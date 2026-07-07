@@ -95,7 +95,7 @@ local function open_popup(o)
       text = {
         top = title,
         top_align = "left",
-        bottom = " <CR>/<C-s> guardar · q/<C-c> cancelar ",
+        bottom = " Esc y Enter para enviar · q para cancelar ",
         bottom_align = "right",
       },
     },
@@ -124,12 +124,10 @@ local function open_popup(o)
     popup:unmount()
   end
 
+  -- Enter en modo NORMAL envía (en insert, Enter hace salto de línea para
+  -- comentarios multi-línea). `q` en normal cancela.
   popup:map("n", "<CR>", confirm, { noremap = true })
-  popup:map("n", "<C-s>", confirm, { noremap = true })
-  popup:map("i", "<C-s>", confirm, { noremap = true })
   popup:map("n", "q", cancel, { noremap = true })
-  popup:map("n", "<C-c>", cancel, { noremap = true })
-  popup:map("i", "<C-c>", cancel, { noremap = true })
 
   -- Arrancar escribiendo (salvo edición, que conviene revisar antes).
   if o.start_insert ~= false then
