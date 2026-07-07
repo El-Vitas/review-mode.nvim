@@ -54,6 +54,17 @@ local function open_sidebar(kind)
   if M._core then M._files_with_comments_cache = M.files_with_comments(M._core) end
   local source = kind == "all" and "filesystem" or "git_status"
   command.execute({ source = source, action = "show", position = "right" })
+
+  -- Abrir con las carpetas CERRADAS (por defecto neo-tree las deja expandidas y
+  -- es un caos). Colapsamos todo tras renderizar, usando el comando nativo de
+  -- neo-tree sobre el estado del árbol.
+  vim.schedule(function()
+    local ok_mgr, mgr = pcall(require, "neo-tree.sources.manager")
+    local ok_cmd, cmds = pcall(require, "neo-tree.sources.common.commands")
+    if not (ok_mgr and ok_cmd) then return end
+    local st = mgr.get_state(source)
+    if st and st.tree then pcall(cmds.close_all_nodes, st) end
+  end)
 end
 
 function M.setup(core, opts)
