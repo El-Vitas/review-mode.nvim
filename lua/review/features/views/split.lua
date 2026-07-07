@@ -27,12 +27,29 @@ function M.is_scratch(bufnr)
   return M._session ~= nil and M._session.buf == bufnr
 end
 
-local function diffoff_win(win)
+-- Fuerza TODAS las líneas visibles (sin folds de diff que compactan lo que no
+-- cambió) + relleno diagonal, en una ventana en modo diff.
+local function open_all_folds(win)
   if win and vim.api.nvim_win_is_valid(win) then
-    pcall(vim.api.nvim_win_call, win, function() vim.cmd("diffoff") end)
     pcall(function()
-      vim.wo[win].foldenable = true
-      vim.wo[win].fillchars = ""
+      vim.wo[win].foldenable = false
+      vim.wo[win].foldlevel = 99
+      vim.wo[win].fillchars = "diff:╱"
+    end)
+  end
+end
+
+-- Saca el diff de la ventana real y restaura sus opciones de fold/fillchars.
+local function restore_main(s)
+  local w = s.main_win
+  if w and vim.api.nvim_win_is_valid(w) then
+    pcall(vim.api.nvim_win_call, w, function() vim.cmd("diffoff") end)
+    pcall(function()
+      local sv = s.saved or {}
+      vim.wo[w].foldenable = sv.fe ~= nil and sv.fe or true
+      vim.wo[w].foldlevel = sv.fl or 99
+      vim.wo[w].foldmethod = sv.fm or "manual"
+      vim.wo[w].fillchars = sv.fc or ""
     end)
   end
 end
@@ -42,7 +59,7 @@ function M.teardown()
   local s = M._session
   M._session = nil
   if not s then return end
-  diffoff_win(s.main_win)
+  restore_main(s)
   if s.left_win and vim.api.nvim_win_is_valid(s.left_win) then
     pcall(vim.api.nvim_win_close, s.left_win, true) -- scratch: bufhidden=wipe
   end
@@ -50,6 +67,13 @@ end
 
 -- Crea el panel HEAD (izquierda) para la ventana `main_win`.
 local function create_pane(main_win)
+  -- Guardar opciones de fold/fillchars de la ventana real para restaurarlas.
+  local saved = {
+    fe = vim.wo[main_win].foldenable,
+    fl = vim.wo[main_win].foldlevel,
+    fm = vim.wo[main_win].foldmethod,
+    fc = vim.wo[main_win].fillchars,
+  }
   vim.api.nvim_set_current_win(main_win)
   vim.cmd("leftabove vsplit")
   local left_win = vim.api.nvim_get_current_win()
@@ -58,9 +82,7 @@ local function create_pane(main_win)
   vim.bo[scratch].bufhidden = "wipe"
   vim.api.nvim_win_set_buf(left_win, scratch)
   pcall(function() vim.wo[left_win].winfixbuf = true end) -- no abrir archivos acá
-  vim.wo[left_win].foldenable = false
-  vim.wo[left_win].fillchars = "diff:╱"
-  return { left_win = left_win, buf = scratch, main_win = main_win }
+  return { left_win = left_win, buf = scratch, main_win = main_win, saved = saved }
 end
 
 --- Maneja el cierre manual de una de las ventanas del split: si se cierra el
@@ -71,7 +93,7 @@ function M.on_win_closed(win)
   if not s then return end
   if win == s.left_win then
     M._session = nil
-    diffoff_win(s.main_win)
+    restore_main(s)
   elseif win == s.main_win then
     M._session = nil
     if s.left_win and vim.api.nvim_win_is_valid(s.left_win) then
@@ -123,8 +145,9 @@ function M.sync(core)
   -- estado viejo al reusar el buffer HEAD entre archivos → "todo cambiado").
   pcall(vim.api.nvim_win_call, s.left_win, function() vim.cmd("diffthis") end)
   pcall(vim.api.nvim_win_call, cur, function() vim.cmd("diffthis") end)
-  vim.wo[cur].foldenable = false
-  vim.wo[cur].fillchars = "diff:╱"
+  -- Sin folds: mostrar TODAS las líneas (no compactar lo que no cambió).
+  open_all_folds(s.left_win)
+  open_all_folds(cur)
   vim.api.nvim_set_current_win(cur)
   pcall(vim.cmd, "diffupdate")
 end
