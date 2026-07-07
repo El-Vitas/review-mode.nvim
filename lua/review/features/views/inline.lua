@@ -6,8 +6,19 @@ function M.clear(core, bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, core.ns.views, 0, -1)
 end
 
---- Pinta decoraciones inline de diff sobre bufnr. No-op si el archivo no
---- pertenece al repo o no tiene cambios.
+-- Ancho para rellenar la barra de líneas borradas (fondo rojo de punta a punta,
+-- como GitHub). Usa el ancho de la ventana que muestra el buffer; 0 si no hay.
+local function win_width(bufnr)
+  local winid = vim.fn.bufwinid(bufnr)
+  if winid == -1 then return 0 end
+  return vim.api.nvim_win_get_width(winid)
+end
+
+--- Pinta decoraciones inline de diff sobre bufnr, comparando el contenido HEAD
+--- contra el contenido ACTUAL del buffer (en memoria, refleja cambios sin
+--- guardar). Muestra las líneas borradas como líneas virtuales rojas encima de
+--- su posición y las agregadas resaltadas en verde (vista unificada, estilo
+--- GitHub "inline"). No-op si el archivo no pertenece al repo o no tiene HEAD.
 function M.render(core, bufnr)
   M.clear(core, bufnr)
 
@@ -15,33 +26,42 @@ function M.render(core, bufnr)
   local root = core.git.root(bufnr)
   if not relpath or not root then return end
 
-  local hunks = diff.hunks_for(relpath, root)
-  if not hunks or #hunks == 0 then return end
+  local head_lines = core.git.head_content(relpath, root)
+  if not head_lines then return end
+
+  local buf_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local hunks = diff.hunks_between(head_lines, buf_lines)
+  if #hunks == 0 then return end
 
   local ns = core.ns.views
+  local width = win_width(bufnr)
+  local last = vim.api.nvim_buf_line_count(bufnr)
+
   for _, h in ipairs(hunks) do
-    -- Líneas borradas: virt_lines colgando encima de la primera línea nueva
-    -- que corresponde a este hunk (o de la línea siguiente si el hunk es
-    -- puramente delete al final del archivo).
+    -- Líneas borradas: líneas virtuales rojas ancladas encima de la posición
+    -- donde estaban (la primera línea nueva del hunk, o el fin si es borrado
+    -- puro al final).
     if #h.del_lines > 0 then
-      local anchor_lnum = math.max(h.new_start - 1, 0)
-      local virt_lines = {}
+      local anchor = math.max(h.new_start - 1, 0)
+      if anchor > last - 1 then anchor = math.max(last - 1, 0) end
+      local virt = {}
       for _, dl in ipairs(h.del_lines) do
-        table.insert(virt_lines, { { dl, "DiffDelete" } })
+        local text = dl
+        if width > 0 and vim.fn.strdisplaywidth(text) < width then
+          text = text .. string.rep(" ", width - vim.fn.strdisplaywidth(text))
+        end
+        virt[#virt + 1] = { { text, "DiffDelete" } }
       end
-      local ok = pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, anchor_lnum, 0, {
-        virt_lines = virt_lines,
-        virt_lines_above = anchor_lnum > 0,
+      pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, anchor, 0, {
+        virt_lines = virt,
+        virt_lines_above = true,
       })
-      if not ok then
-        -- anchor fuera de rango (archivo más corto de lo esperado): ignorar
-      end
     end
 
-    -- Líneas agregadas: resaltar toda la línea real.
+    -- Líneas agregadas: resaltar toda la línea real en verde.
     for _, lnum in ipairs(h.add_lnums) do
       local row = lnum - 1
-      if row >= 0 and row < vim.api.nvim_buf_line_count(bufnr) then
+      if row >= 0 and row < last then
         pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, row, 0, {
           line_hl_group = "DiffAdd",
         })

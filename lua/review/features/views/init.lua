@@ -47,13 +47,28 @@ end
 
 function M.setup(core, opts)
   M.mode = {}
+  local group = vim.api.nvim_create_augroup("ReviewViews", { clear = true })
   -- Limpiar el estado por-buffer cuando el buffer se destruye, para que
   -- Neovim no recicle su bufnr con un modo heredado (bug de estado obsoleto).
   vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
-    group = vim.api.nvim_create_augroup("ReviewViews", { clear = true }),
+    group = group,
     callback = function(a)
       M.mode[a.buf] = nil
       split.close(core, a.buf)
+    end,
+  })
+  -- Re-render en vivo: al editar, recomputa el diff (HEAD vs buffer en memoria)
+  -- y repinta la vista activa, para que los highlights sigan los cambios sin
+  -- guardar. TextChangedI cubre el modo insert; TextChanged el modo normal.
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+    group = group,
+    callback = function(a)
+      local mode = M.mode[a.buf]
+      if mode == "inline" then
+        inline.render(core, a.buf)
+      elseif mode == "split" then
+        split.refresh(core, a.buf)
+      end
     end,
   })
   local commands = require("review.features.views.commands")

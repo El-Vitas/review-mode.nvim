@@ -117,7 +117,9 @@ function M.open(core, bufnr)
 
   M.close(core, bufnr) -- cierra un panel previo de ESTE buffer, si lo hubiera
 
-  local hunks = root and diff.hunks_for(relpath, root) or nil
+  -- Diff en memoria (HEAD vs buffer actual): refleja cambios sin guardar.
+  local buf_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local hunks = diff.hunks_between(head_lines, buf_lines)
   local head_count = #head_lines
 
   -- Rellenar el HEAD con líneas en blanco hasta igualar el largo del archivo
@@ -154,7 +156,7 @@ function M.open(core, bufnr)
   head_hl_deletes(core, scratch, head_count, hunks)   -- rojo en HEAD (izquierda)
   current_hl_adds(core, bufnr, hunks)                 -- verde en el archivo (derecha)
 
-  M._panels[bufnr] = { win = left_win, buf = scratch, main = target_win }
+  M._panels[bufnr] = { win = left_win, buf = scratch, main = target_win, head = head_lines }
 
   -- Alinear el panel HEAD a la posición ACTUAL del archivo (no saltar a la
   -- línea 1): así `:rvs` recuerda dónde estabas parado. Ponemos el cursor del
@@ -168,6 +170,20 @@ function M.open(core, bufnr)
   install_sync() -- fuerza el sync también con la rueda del mouse (ventana con foco)
   vim.api.nvim_set_current_win(target_win)
   pcall(vim.cmd, "syncbind")
+end
+
+--- Re-pinta los highlights (rojo en HEAD, verde en el archivo) recomputando el
+--- diff HEAD vs buffer actual. Se llama al editar, para que el resaltado siga
+--- los cambios sin guardar. No-op si este buffer no tiene panel abierto.
+function M.refresh(core, bufnr)
+  local p = M._panels[bufnr]
+  if not p then return end
+  pcall(vim.api.nvim_buf_clear_namespace, p.buf, core.ns.views, 0, -1)
+  pcall(vim.api.nvim_buf_clear_namespace, bufnr, core.ns.views, 0, -1)
+  local buf_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local hunks = diff.hunks_between(p.head, buf_lines)
+  head_hl_deletes(core, p.buf, #(p.head or {}), hunks)
+  current_hl_adds(core, bufnr, hunks)
 end
 
 --- Cierra el panel izquierdo de HEAD del buffer `bufnr` si está abierto y
