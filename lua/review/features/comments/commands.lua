@@ -46,16 +46,29 @@ end
 -- Sobre una entrada: <CR> ir (y cerrar), d borrar, x resolver/des-resolver,
 -- q cerrar. Una winbar arriba muestra los atajos. `provider` se re-consulta
 -- para refrescar la lista tras d/x.
+local FILTER_LABEL = { all = "todos", open = "abiertos", resolved = "resueltos" }
+
 local function open_list(core, provider, title)
-  local ctx = {}
+  local ctx = { filter = "all", raw = 0 }
   local ftitle = "review.nvim" .. (title and (": " .. title) or "")
+
+  local function apply_filter(list)
+    if ctx.filter == "open" then
+      return vim.tbl_filter(function(c) return not c.resolved end, list)
+    elseif ctx.filter == "resolved" then
+      return vim.tbl_filter(function(c) return c.resolved end, list)
+    end
+    return list
+  end
   local function items_now()
-    ctx.comments = sorted(provider())
+    local raw = provider()
+    ctx.raw = #raw
+    ctx.comments = sorted(apply_filter(raw))
     return to_qf_items(core, ctx.comments)
   end
 
   local items = items_now()
-  if #items == 0 then
+  if ctx.raw == 0 then
     vim.notify("review.nvim: no hay comentarios" .. (title and (" en " .. title) or ""), vim.log.levels.INFO)
     return
   end
@@ -64,23 +77,34 @@ local function open_list(core, provider, title)
 
   local qwin = vim.api.nvim_get_current_win()
   local qbuf = vim.api.nvim_win_get_buf(qwin)
-  -- Barra de atajos visible.
-  vim.wo[qwin].winbar =
-    "%#Title# review.nvim %* ‹CR› ir · ‹d› borrar · ‹x› resolver · ‹q› cerrar"
+
+  local function update_winbar()
+    vim.wo[qwin].winbar = "%#Title# review.nvim %* ‹CR› ir · ‹d› borrar · ‹x› resolver · ‹f› filtro:"
+      .. FILTER_LABEL[ctx.filter] .. " · ‹q› cerrar"
+  end
+  update_winbar()
 
   local function comment_at_cursor()
     return ctx.comments[vim.fn.line(".")]
   end
+  -- Refresca la lista in situ. Solo cierra si NO queda ningún comentario en
+  -- total (el filtro puede dejar la vista vacía y eso es válido).
   local function refresh()
     local its = items_now()
-    if #its == 0 then
+    if ctx.raw == 0 then
       vim.cmd("cclose")
       return
     end
     local line = vim.fn.line(".")
     vim.fn.setqflist({}, "r", { title = ftitle, items = its })
-    pcall(vim.api.nvim_win_set_cursor, qwin, { math.min(line, #its), 0 })
+    if #its > 0 then pcall(vim.api.nvim_win_set_cursor, qwin, { math.min(line, #its), 0 }) end
   end
+
+  vim.keymap.set("n", "f", function()
+    ctx.filter = (ctx.filter == "all" and "open") or (ctx.filter == "open" and "resolved") or "all"
+    refresh()
+    update_winbar()
+  end, { buffer = qbuf, nowait = true, desc = "review.nvim: filtrar todos/abiertos/resueltos" })
 
   vim.keymap.set("n", "<CR>", function()
     local idx = vim.fn.line(".")
