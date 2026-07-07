@@ -21,41 +21,70 @@ vivo** sobre la misma instancia de Neovim que estás usando, sin choques.
 - Todas las funciones son **serializables**: reciben/devuelven `string` (JSON) o
   primitivos; nunca extmark ids ni tablas Lua crudas.
 
-### 1.2 Concurrencia y "quién manda" — la clave para que no rompa
+### 1.2 Separación de responsabilidades
 
-**Comentarios (estado):** no hay concurrencia real. Los `--remote-expr` se
-ejecutan en el **event loop principal** de Neovim, uno a la vez, intercalados
-con tus acciones. Es decir: agente y usuario mutan `core.state`
-**serializados**, nunca en simultáneo → no hay data race. `core.state` sigue
-siendo la única fuente de verdad; cada mutación emite `comments:changed` y la UI
-se redibuja igual venga de vos o del agente. Cada mutación del agente persiste
-inmediatamente (`core.state.persist()`).
+Regla clara:
+- **El código lo escribe el agente LIBREMENTE en disco** (con sus propias
+  herramientas), FUERA de Neovim. review.nvim NO edita código y NO interviene en
+  cómo el agente modifica archivos.
+- **Los comentarios SÍ pasan por Neovim** (vía `_G.ReviewAgent`, sobre
+  `core.state`), que es la única fuente de verdad de los comentarios.
 
-**Código (ediciones en vivo):** acá está el cuidado real.
-- El agente **NO debe escribir el archivo en disco** por detrás (pisaría tus
-  cambios sin guardar y rompería el buffer). En su lugar, edita a través del
-  **buffer** con `nvim_buf_set_text`/`set_lines`. Ventajas:
-  - Los **extmarks de comentarios se re-anclan solos** (siguen la línea).
-  - Las **vistas de diff se actualizan en vivo** (el diff nativo del split y el
-    inline recomputan).
-  - Queda en el **undo tree**: podés deshacer un cambio del agente con `u`.
-- Si el archivo del agente no está abierto en un buffer, se abre (o se edita en
-  memoria y se persiste), pero nunca se hace `:w` silencioso sobre algo con
-  cambios sin guardar.
-- **Ambos editando la misma zona:** como todo pasa por el buffer y está
-  serializado, el "último en escribir" gana esa línea (comportamiento normal de
-  Vim). Para evitar pisones molestos:
-  - **Turno suave (soft-lock):** el agente puede marcar "estoy trabajando en
-    `path:lnum-lnum`" (un extmark de "zona en edición del agente"); si estás
-    escribiendo en esa zona, se difiere o se avisa. No es un lock duro, es una
-    señal visual (barra/decoración) + una consulta `ReviewAgent.is_busy_zone()`.
-  - **No editar mientras estás en insert:** el agente consulta el modo
-    (`mode()`); si estás en insert en ese buffer, encola el cambio para cuando
-    salgas (o avisa). Evita pelear teclas.
-  - **Notificación:** cada edición/comentario del agente dispara un `vim.notify`
-    discreto + (opcional) un salto/decoración para que sepas qué tocó.
+Entonces el problema NO es "editar código sin choques" (eso lo maneja el agente
+en disco), sino: **cuando el agente cambia un archivo en disco, Neovim tiene que
+enterarse, recargar el buffer y RE-ANCLAR los comentarios** (porque una edición
+en disco NO mueve los extmarks del buffer).
 
-### 1.3 API `_G.ReviewAgent` (propuesta)
+### 1.3 Reconciliación: detectar cambios en disco y re-anclar comentarios
+
+**Comentarios (estado):** no hay concurrencia real. Los `--remote-expr` corren
+serializados en el event loop principal, intercalados con tus acciones → agente
+y usuario mutan `core.state` uno a la vez, sin data race. Cada mutación emite
+`comments:changed`, la UI se redibuja y se persiste.
+
+**Cambios de código en disco (el punto delicado):**
+
+1. **Detección.** `autoread` + un autocmd `FileChangedShell`/`FileChangedShellPost`
+   (o un `checktime` disparado por el agente vía RPC al terminar de editar, p. ej.
+   `ReviewAgent.notify_changed(path)`). Así Neovim sabe que el archivo cambió.
+
+2. **Buffer SIN cambios sin guardar (caso normal):** el usuario está revisando
+   (leyendo/comentando), no editando código → el buffer no está `modified`. Se
+   recarga automáticamente. Pero al recargar **se pierden los extmarks**, así que
+   hay que **re-anclar** los comentarios:
+   - Antes de recargar, capturar las líneas viejas del buffer.
+   - Después de recargar, tomar las líneas nuevas (del disco).
+   - Diffear viejo vs nuevo (`vim.diff`) y **remapear el `lnum`/`end_lnum` de cada
+     comentario** a través de los hunks: los comentarios en zonas sin cambios se
+     corren limpio; los que caen DENTRO de una zona modificada por el agente se
+     marcan como **`stale` (posiblemente desubicado)** con un indicador visual,
+     para que los revises.
+   - Ancla de respaldo por **contenido**: guardar el texto de la línea comentada
+     (`anchor_text`) para relocalizar por búsqueda si el diff no alcanza.
+   - Luego re-render + persist con las posiciones nuevas.
+
+3. **Buffer CON cambios sin guardar (conflicto real):** vos editaste código y no
+   guardaste, y el agente tocó el mismo archivo en disco → divergieron. Neovim
+   **no debe pisar** tus cambios. Estrategia:
+   - `FileChangedShell` con buffer `modified` → NO auto-recargar; avisar y ofrecer
+     opciones: ver el diff (buffer vs disco), recargar descartando lo tuyo, o
+     mantener lo tuyo.
+   - **Prevención:** el agente puede preguntar por RPC
+     `ReviewAgent.is_modified(path)` antes de editar; si está `modified`, que evite
+     ese archivo o te avise. Es lo ideal: como el agente escribe libre en disco,
+     que primero consulte si ese archivo lo estás editando sin guardar.
+
+4. **Vistas de diff:** tras la recarga, el buffer = contenido nuevo del disco;
+   inline/split recomputan contra HEAD solos (comparan buffer vs HEAD). Sin
+   trabajo extra.
+
+**Notificación:** cuando el agente comenta/responde/resuelve, un `vim.notify`
+discreto (y opcional salto/decoración) para que sepas qué tocó.
+
+### 1.4 API `_G.ReviewAgent` (propuesta)
+
+Solo comentarios y coordinación. **El código NO pasa por acá** — lo escribe el
+agente en disco con sus herramientas.
 
 Lectura:
 - `list(filter?)` → JSON de comentarios. `filter`: `{ author?, path?, resolved?, answered? }`.
@@ -73,17 +102,15 @@ Escritura de comentarios:
 - `delete(id)`.
 - `clean_resolved(path?)` → borra los resueltos (limpieza masiva).
 
-Código:
-- `apply_edit({ path, start_lnum, end_lnum, lines })` → edita vía buffer (ver 1.2),
-  con re-anclaje de comentarios y actualización de vistas.
-- `preview_edit(...)` → propone el cambio como diff sin aplicarlo (para que lo
-  aceptes/rechaces vos primero) — flujo "sugerencia".
+Coordinación con la edición en disco:
+- `is_modified(path)` → `boolean`: ¿ese archivo está abierto en Neovim con cambios
+  SIN guardar? El agente lo consulta ANTES de editar en disco, para no chocar con
+  algo que estás editando (ver 1.3.3).
+- `notify_changed(path)` → el agente avisa que terminó de editar ese archivo en
+  disco; Neovim hace `checktime`, recarga y re-ancla los comentarios (ver 1.3.2).
+- `servername()` → el socket actual (para que el agente sepa a dónde conectarse).
 
-Coordinación:
-- `servername()` → el socket actual.
-- `mode()` / `is_busy_zone(path, lnum)` → para el turno suave.
-
-### 1.4 Comentarios del agente: autoría, threading, filtros
+### 1.5 Comentarios del agente: autoría, threading, filtros
 
 Extensión del modelo de datos (compatible hacia atrás):
 ```
@@ -109,32 +136,36 @@ comment = {
   1. Dejás comentarios (dudas, pedidos).
   2. `:Rya` copia el markdown agent-ready y se lo das al agente (o el agente lo
      lee por `ReviewAgent.list`).
-  3. El agente: aplica cambios (`apply_edit`), **responde ligado** a cada
-     comentario (`reply`) con la justificación, y opcionalmente resuelve.
-  4. Vos ves en vivo: el badge/gutter marca que hay respuesta del agente; abrís
-     el peek y leés la justificación; aceptás (queda resuelto) o reabrís.
+  3. El agente **edita el código en disco por su cuenta** y, por RPC, **responde
+     ligado** a cada comentario (`reply`) con la justificación, opcionalmente lo
+     resuelve, y avisa `notify_changed(path)` de los archivos que tocó.
+  4. Neovim recarga esos archivos y re-ancla los comentarios (1.3.2). Vos ves en
+     vivo: el badge/gutter marca que hay respuesta del agente; abrís el peek y
+     leés la justificación; aceptás (queda resuelto) o reabrís.
   5. `clean_resolved` para limpiar lo cerrado.
 
-### 1.5 Ideas extra para mejor flujo
+### 1.6 Ideas extra para mejor flujo
 
 - **Marcador "respondido por agente"** en el gutter (color/ícono distinto) para
   saltar rápido a lo contestado.
+- **Marcador `stale`** en comentarios cuya línea cayó dentro de una zona que el
+  agente cambió en disco (re-anclaje incierto) → los revisás vos.
 - **Historial por comentario:** guardar los replies como hilo ordenado por fecha.
 - **"Aceptar respuesta":** un comando que marca el hilo como resuelto y (opcional)
   archiva.
-- **Sugerencias no aplicadas:** `preview_edit` deja un diff propuesto que podés
-  aplicar con una tecla (como "apply suggestion" de GitHub).
 - **Notas de sesión:** el agente puede dejar un comentario "resumen" a nivel
   archivo (lnum=1) con lo que hizo.
-- **Anti-eco:** al re-anclar tras una edición del agente, no re-emitir eventos en
-  loop (reusar el guard de `sync`).
+- **Anti-eco:** al re-anclar tras una recarga, no re-emitir eventos en loop.
 
-### 1.6 Orden de implementación sugerido
-1. Modelo: agregar `author` y `reply_to` a `core.state` (con defaults; retro-compatible).
-2. Render/gutter/peek: distinguir autor + mostrar hilos.
+### 1.7 Orden de implementación sugerido
+1. Modelo: agregar `author`, `reply_to`, `anchor_text`, `stale` a `core.state`
+   (con defaults; retro-compatible).
+2. Render/gutter/peek: distinguir autor + mostrar hilos + marca `stale`.
 3. Lista: filtro por autor y por respondido/sin responder.
-4. `rpc.lua`: list/get/add/reply/resolve/unresolve/update/delete/clean_resolved.
-5. `apply_edit` vía buffer + re-anclaje + turno suave.
+4. Re-anclaje: autocmd `FileChangedShell` + remapeo de `lnum` por diff
+   (viejo vs nuevo) + ancla por contenido. (El corazón del flujo con el agente.)
+5. `rpc.lua`: list/get/context/add/reply/resolve/unresolve/update/delete/
+   clean_resolved + is_modified/notify_changed.
 6. `init.lua`: `_G.ReviewAgent`, `opts.enabled`, notificaciones.
 7. Docs del protocolo + ejemplos `--remote-expr`.
 
