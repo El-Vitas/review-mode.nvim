@@ -56,6 +56,15 @@ function M.setup(core, opts)
     end,
   })
 
+  -- Cierre manual de una columna del split: limpiar la sesión.
+  vim.api.nvim_create_autocmd("WinClosed", {
+    group = group,
+    callback = function(a)
+      local win = tonumber(a.match)
+      if win then pcall(split.on_win_closed, win) end
+    end,
+  })
+
   -- Re-render en vivo del modo inline al editar (el split nativo se re-diffea solo).
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
     group = group,

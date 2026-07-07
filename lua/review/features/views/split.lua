@@ -63,6 +63,23 @@ local function create_pane(main_win)
   return { left_win = left_win, buf = scratch, main_win = main_win }
 end
 
+--- Maneja el cierre manual de una de las ventanas del split: si se cierra el
+--- panel HEAD o la ventana de edición, saca el diff de la que quede y limpia la
+--- sesión (así no queda una columna pegada en modo diff).
+function M.on_win_closed(win)
+  local s = M._session
+  if not s then return end
+  if win == s.left_win then
+    M._session = nil
+    diffoff_win(s.main_win)
+  elseif win == s.main_win then
+    M._session = nil
+    if s.left_win and vim.api.nvim_win_is_valid(s.left_win) then
+      pcall(vim.api.nvim_win_close, s.left_win, true)
+    end
+  end
+end
+
 --- Sincroniza el panel HEAD con el archivo de la ventana ACTUAL (la de edición).
 --- Crea la sesión si hace falta; la cierra si el archivo no tiene HEAD o no está
 --- en el repo (queda en una sola columna).
@@ -98,13 +115,18 @@ function M.sync(core)
   local ft = vim.bo[buf].filetype
   if ft and ft ~= "" then vim.bo[scratch].filetype = ft end
   pcall(vim.api.nvim_buf_set_name, scratch, "review://head/" .. rel)
+  -- Mismo resaltado que la derecha: arrancar treesitter en el panel HEAD (sin
+  -- esto se ve más apagado/con otros colores).
+  pcall(vim.treesitter.start, scratch)
 
-  -- Diff en ambas ventanas.
+  -- Diff en ambas ventanas + forzar recálculo (evita que el diff quede con
+  -- estado viejo al reusar el buffer HEAD entre archivos → "todo cambiado").
   pcall(vim.api.nvim_win_call, s.left_win, function() vim.cmd("diffthis") end)
   pcall(vim.api.nvim_win_call, cur, function() vim.cmd("diffthis") end)
   vim.wo[cur].foldenable = false
   vim.wo[cur].fillchars = "diff:╱"
   vim.api.nvim_set_current_win(cur)
+  pcall(vim.cmd, "diffupdate")
 end
 
 return M
