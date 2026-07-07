@@ -6,6 +6,7 @@ local split = require("review.features.views.split")
 -- split, ambas columnas siguen al archivo activo.
 local M = {}
 M.mode = "normal"
+M.active = false -- true una vez que el usuario elige un modo (recién ahí gestionamos folds)
 
 local VALID_MODES = { normal = true, inline = true, split = true }
 local applying = false
@@ -32,6 +33,7 @@ local function apply_current(core)
   if applying then return end
   applying = true
   local ok, err = pcall(function()
+    local win = vim.api.nvim_get_current_win()
     local buf = vim.api.nvim_get_current_buf()
     if split.is_scratch(buf) then return end -- ignorar el panel HEAD
     if M.mode == "inline" then
@@ -44,6 +46,15 @@ local function apply_current(core)
       inline.clear(core, buf)
       split.teardown()
     end
+    -- Con review activo, NUNCA compactar líneas: abrir los folds en la ventana
+    -- del archivo (en los 3 modos). Sin esto, un plugin de folds del usuario
+    -- (treesitter/ufo) mostraría "+-- N lines" tapando lo que se revisa.
+    if M.active and vim.bo[buf].buftype == "" then
+      pcall(function()
+        vim.wo[win].foldenable = false
+        vim.wo[win].foldlevel = 99
+      end)
+    end
   end)
   applying = false
   if not ok then vim.notify("review.nvim views: " .. tostring(err), vim.log.levels.DEBUG) end
@@ -53,7 +64,9 @@ end
 --- modo es inválido o ya es el actual.
 function M.set(core, mode)
   if not VALID_MODES[mode] then return end
-  if M.mode == mode then return end
+  local was_active = M.active
+  M.active = true -- el usuario activó review (a partir de acá gestionamos folds)
+  if M.mode == mode and was_active then return end
   M.mode = mode
   apply_current(core)
   core.events.emit("view:changed", { mode = mode })
@@ -61,6 +74,7 @@ end
 
 function M.setup(core, opts)
   M.mode = "normal"
+  M.active = false
   local group = vim.api.nvim_create_augroup("ReviewViews", { clear = true })
 
   ensure_diff_hl()
@@ -74,10 +88,12 @@ function M.setup(core, opts)
   })
 
   -- Al entrar a un archivo, re-aplicar el modo global (global como VSCode).
+  -- Corre solo si review está ACTIVO (el usuario ya eligió un modo); así no
+  -- tocamos nada —ni folds— antes de que active review.
   vim.api.nvim_create_autocmd({ "BufWinEnter", "BufEnter" }, {
     group = group,
     callback = function(a)
-      if M.mode == "normal" then return end
+      if not M.active then return end
       if vim.bo[a.buf].buftype ~= "" or split.is_scratch(a.buf) then return end
       vim.schedule(function() apply_current(core) end)
     end,
