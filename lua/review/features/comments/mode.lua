@@ -195,9 +195,29 @@ local function all_at(core, rel, lnum)
   return out
 end
 
---- Muestra en un flotante bordeado (con fondo) el/los comentario(s) completos
---- de la línea actual. Se cierra solo al mover el cursor.
+-- Ventana flotante persistente del peek (una sola a la vez).
+M._peek_win = nil
+M._peek_buf = nil
+
+--- Cierra el flotante del peek si está abierto.
+function M.close_peek()
+  if M._peek_win and vim.api.nvim_win_is_valid(M._peek_win) then
+    pcall(vim.api.nvim_win_close, M._peek_win, true)
+  end
+  M._peek_win = nil
+  M._peek_buf = nil
+end
+
+--- Muestra en un flotante FIJO (bordeado, con fondo) el/los comentario(s)
+--- completos de la línea actual. Queda anclado cerca del bloque y NO sigue al
+--- cursor ni se mueve con el scroll: permanece abierto hasta que lo cierres.
+--- Es un toggle: si ya hay uno abierto, lo cierra.
 function M.peek_here(core)
+  if M._peek_win and vim.api.nvim_win_is_valid(M._peek_win) then
+    M.close_peek()
+    return
+  end
+
   local bufnr = vim.api.nvim_get_current_buf()
   local rel = core.git.rel_path(bufnr)
   if not rel then return end
@@ -221,15 +241,49 @@ function M.peek_here(core)
     end
   end
 
-  local ok, _ = pcall(vim.lsp.util.open_floating_preview, lines, "markdown", {
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].filetype = "markdown"
+  vim.bo[buf].modifiable = false
+  vim.bo[buf].bufhidden = "wipe"
+
+  local width = 20
+  for _, l in ipairs(lines) do width = math.max(width, vim.fn.strdisplaywidth(l)) end
+  width = math.min(width + 1, 80)
+  local height = math.min(#lines, 15)
+
+  -- Posición FIJA en pantalla, cerca del bloque: tomamos la posición de pantalla
+  -- de la primera línea del comentario en el momento de abrir. relative="editor"
+  -- => no se mueve con el scroll ni sigue al cursor.
+  local first = math.min(matches[1].lnum, matches[1].end_lnum or matches[1].lnum)
+  local sp = vim.fn.screenpos(vim.api.nvim_get_current_win(), first, 1)
+  local row = (sp.row and sp.row > 0) and sp.row or math.floor((vim.o.lines - height) / 2)
+  local col = (sp.col and sp.col > 0) and (sp.col - 1) or 4
+  if row + height + 2 > vim.o.lines then row = math.max(sp.row - height - 2, 0) end
+  if col + width + 2 > vim.o.columns then col = math.max(vim.o.columns - width - 2, 0) end
+
+  local win = vim.api.nvim_open_win(buf, false, {
+    relative = "editor",
+    row = row,
+    col = col,
+    width = width,
+    height = height,
+    style = "minimal",
     border = "rounded",
-    focusable = false,
-    max_width = 80,
     title = " Comentario ",
+    title_pos = "left",
+    noautocmd = true,
   })
-  if not ok then
-    vim.lsp.util.open_floating_preview(lines, "markdown", { border = "rounded", focusable = false })
-  end
+  -- Fondo OPACO propio: si el tema tiene NormalFloat transparente, el flotante
+  -- se ve "hueco". Forzamos un fondo sólido y sin blend.
+  vim.wo[win].winhighlight = "Normal:ReviewPeekNormal,FloatBorder:ReviewPeekBorder,FloatTitle:ReviewPeekTitle"
+  vim.wo[win].winblend = 0
+  M._peek_win = win
+  M._peek_buf = buf
+
+  -- Si el usuario entra al flotante, q/Esc lo cierran.
+  vim.keymap.set("n", "q", M.close_peek, { buffer = buf, nowait = true })
+  vim.keymap.set("n", "<Esc>", M.close_peek, { buffer = buf, nowait = true })
 end
 
 function M.delete_here(core)
