@@ -61,4 +61,26 @@ describe("comments.render", function()
     assert.are.equal(3, got.lnum)      -- 2 -> 3
     assert.are.equal(5, got.end_lnum)  -- 4 -> 5 (rango conservado, no colapsado)
   end)
+
+  it("reconcile marca stale cuando la línea anclada ya no coincide", function()
+    local c = state.add({ path = "foo.ts", lnum = 2, text = "x", anchor_text = "l2" })
+    render.render(core, bufnr)
+    vim.api.nvim_buf_set_lines(bufnr, 1, 2, false, { "TOTALMENTE DISTINTO" })
+    render.reconcile(core, bufnr)
+    assert.is_true(state.by_id(c.id).stale)
+  end)
+
+  it("reconcile des-marca stale si la línea vuelve a coincidir", function()
+    local c = state.add({ path = "foo.ts", lnum = 2, text = "x", anchor_text = "l2", stale = true })
+    render.render(core, bufnr)
+    render.reconcile(core, bufnr)  -- la línea 2 sigue siendo "l2"
+    assert.is_false(state.by_id(c.id).stale)
+  end)
+
+  it("reconcile no marca stale si el comentario no tiene anchor_text", function()
+    local c = state.add({ path = "foo.ts", lnum = 2, text = "x" })
+    render.render(core, bufnr)
+    render.reconcile(core, bufnr)
+    assert.is_nil(state.by_id(c.id).stale)
+  end)
 end)

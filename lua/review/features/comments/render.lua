@@ -97,4 +97,36 @@ function M.sync_positions(core, bufnr)
   end
 end
 
+--- Re-sincroniza posiciones desde los extmarks y marca `stale` los comentarios
+--- cuya línea anclada dejó de coincidir con su `anchor_text` (malla de seguridad
+--- tras un cambio de código en disco). Des-marca los que volvieron a coincidir.
+--- No-op si el buffer está fuera del repo.
+function M.reconcile(core, bufnr)
+  local rel = core.git.rel_path(bufnr)
+  if not rel then return end
+
+  M.sync_positions(core, bufnr)
+
+  local last = vim.api.nvim_buf_line_count(bufnr)
+  for _, c in ipairs(core.state.for_path(rel)) do
+    if c.anchor_text and c.anchor_text ~= "" then
+      local row = (c.lnum or 1) - 1
+      local now = ""
+      if row >= 0 and row < last then
+        now = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
+      end
+      -- coincide si la línea actual iguala el texto ancla (tolerante a
+      -- reindentación/espacios: comparamos trims).
+      local matches = vim.trim(now) == vim.trim(c.anchor_text)
+      if matches and c.stale then
+        core.state.update(c.id, { stale = false })
+      elseif not matches and not c.stale then
+        core.state.update(c.id, { stale = true })
+      end
+    end
+  end
+
+  M.render(core, bufnr)
+end
+
 return M

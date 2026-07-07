@@ -31,7 +31,15 @@ function M._add(core, bufnr, lnum, end_lnum, text)
     lnum, end_lnum = end_lnum, lnum
   end
 
-  local c = core.state.add({ path = rel, lnum = lnum, end_lnum = end_lnum, text = text })
+  -- Guardar el texto de la línea ancla: malla de seguridad para detectar
+  -- re-anclaje incierto (stale) tras un cambio de código en disco (roadmap §1.3).
+  local anchor_text = ""
+  do
+    local lines = vim.api.nvim_buf_get_lines(bufnr, lnum - 1, lnum, false)
+    anchor_text = lines[1] or ""
+  end
+
+  local c = core.state.add({ path = rel, lnum = lnum, end_lnum = end_lnum, text = text, anchor_text = anchor_text })
   render.render(core, bufnr)
   core.state.persist()
   return c
