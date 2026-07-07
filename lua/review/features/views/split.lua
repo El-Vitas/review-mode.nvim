@@ -45,49 +45,15 @@ function M.owner_of(scratch_bufnr)
   return nil
 end
 
--- Dada una ventana de un panel, devuelve la ventana pareja (o nil).
-local function paired_win(win)
-  for _, p in pairs(M._panels) do
-    if p.win == win then return p.main end
-    if p.main == win then return p.win end
+-- Activa/desactiva scroll + cursor sincronizados en una ventana. `scrollbind`
+-- lo maneja Neovim a nivel nativo (sin loops ni tirones); combinado con el
+-- relleno del HEAD (ambos paneles del mismo largo) y arrancando alineados en
+-- la línea 1, se mantiene pegado con teclado y rueda del mouse.
+local function set_bind(win, on)
+  if win and vim.api.nvim_win_is_valid(win) then
+    vim.wo[win].scrollbind = on
+    vim.wo[win].cursorbind = on
   end
-  return nil
-end
-
--- Sincronización de scroll ABSOLUTA vía WinScrolled (a diferencia de
--- `scrollbind`, que es relativo y se desfasa cuando los paneles tienen distinto
--- largo, y que la rueda del mouse no siempre propaga). Copiamos `topline`/
--- `leftcol` de la ventana que scrolleó a su pareja, en cualquier dirección.
-local _syncing = false
-local function install_sync()
-  if M._sync_installed then return end
-  M._sync_installed = true
-  vim.api.nvim_create_autocmd("WinScrolled", {
-    group = vim.api.nvim_create_augroup("ReviewSplitSync", { clear = true }),
-    callback = function(args)
-      if _syncing then return end
-      local win = tonumber(args.match)
-      if not win or not vim.api.nvim_win_is_valid(win) then return end
-      local other = paired_win(win)
-      if not other or not vim.api.nvim_win_is_valid(other) then return end
-
-      _syncing = true
-      local ok, view = pcall(vim.api.nvim_win_call, win, function()
-        return vim.fn.winsaveview()
-      end)
-      if ok and view then
-        pcall(vim.api.nvim_win_call, other, function()
-          local v = vim.fn.winsaveview()
-          if v.topline ~= view.topline or v.leftcol ~= view.leftcol then
-            v.topline = view.topline
-            v.leftcol = view.leftcol
-            vim.fn.winrestview(v)
-          end
-        end)
-      end
-      _syncing = false
-    end,
-  })
 end
 
 --- Abre el panel izquierdo con el contenido HEAD del archivo del buffer actual.
@@ -145,21 +111,27 @@ function M.open(core, bufnr)
 
   M._panels[bufnr] = { win = left_win, buf = scratch, main = target_win }
 
-  -- Sync de scroll absoluto (mouse + teclado, ambas direcciones).
-  install_sync()
-
-  -- Arrancar ambos alineados arriba de todo.
-  vim.api.nvim_set_current_win(target_win)
-  pcall(vim.cmd, "normal! gg")
+  -- Arrancar ambos alineados en la línea 1 (offset de scrollbind = 0) y
+  -- activar el bind en las dos ventanas. syncbind fija el punto de partida.
   pcall(vim.api.nvim_win_set_cursor, left_win, { 1, 0 })
+  pcall(vim.api.nvim_win_set_cursor, target_win, { 1, 0 })
+  set_bind(left_win, true)
+  set_bind(target_win, true)
+  vim.api.nvim_set_current_win(target_win)
+  pcall(vim.cmd, "syncbind")
 end
 
 --- Cierra el panel izquierdo de HEAD del buffer `bufnr` si está abierto y
 --- limpia el resaltado de agregados en el buffer real. Idempotente.
 function M.close(core, bufnr)
   local p = M._panels[bufnr]
-  if p and p.win and vim.api.nvim_win_is_valid(p.win) then
-    pcall(vim.api.nvim_win_close, p.win, true)
+  if p then
+    -- Apagar el bind en la ventana real que sobrevive, si no seguiría
+    -- moviéndose sola tras cerrar el panel.
+    set_bind(p.main, false)
+    if p.win and vim.api.nvim_win_is_valid(p.win) then
+      pcall(vim.api.nvim_win_close, p.win, true)
+    end
   end
   -- El verde de agregados vive en el buffer real (ns.views); hay que borrarlo.
   if core and core.ns then
