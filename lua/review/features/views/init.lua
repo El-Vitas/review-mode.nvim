@@ -10,14 +10,20 @@ M.mode = "normal"
 local VALID_MODES = { normal = true, inline = true, split = true }
 local applying = false
 
--- Colores del split por COLUMNA: HEAD (izquierda) en ROJO (lo viejo/borrado),
--- archivo (derecha) en VERDE (lo nuevo/agregado). Override-ables.
+-- Colores del split. Distingue:
+--  * línea MODIFICADA (DiffChange): tinte NARANJA suave en ambas columnas.
+--  * texto exacto que cambió dentro de la línea (DiffText): ROJO a la izq
+--    (lo quitado), VERDE a la der (lo agregado) -> se ve QUÉ cambió.
+--  * línea BORRADA entera (única de la izq) / AGREGADA entera (única de la der):
+--    ROJA / VERDE completa.
+-- Override-ables.
 local function ensure_diff_hl()
-  vim.api.nvim_set_hl(0, "ReviewDiffDelLine", { bg = "#3a2830", default = true })
-  vim.api.nvim_set_hl(0, "ReviewDiffDelText", { bg = "#5c2a38", fg = "#ed8796", default = true })
-  vim.api.nvim_set_hl(0, "ReviewDiffAddLine", { bg = "#26382c", default = true })
-  vim.api.nvim_set_hl(0, "ReviewDiffAddText", { bg = "#2f5238", fg = "#a6da95", default = true })
-  vim.api.nvim_set_hl(0, "ReviewDiffFiller", { bg = "#2a2b38", default = true })
+  vim.api.nvim_set_hl(0, "ReviewDiffChange", { bg = "#3a3226", default = true }) -- modificada: naranja suave
+  vim.api.nvim_set_hl(0, "ReviewDiffDelLine", { bg = "#4a2732", default = true }) -- línea borrada entera
+  vim.api.nvim_set_hl(0, "ReviewDiffDelText", { bg = "#6e2b3a", fg = "#ed8796", bold = true, default = true }) -- texto quitado
+  vim.api.nvim_set_hl(0, "ReviewDiffAddLine", { bg = "#26382c", default = true }) -- línea agregada entera
+  vim.api.nvim_set_hl(0, "ReviewDiffAddText", { bg = "#2f5a38", fg = "#a6da95", bold = true, default = true }) -- texto agregado
+  vim.api.nvim_set_hl(0, "ReviewDiffFiller", { bg = "#2a2b38", default = true }) -- relleno
 end
 
 -- Aplica el modo global a la ventana/buffer ACTUAL (la de edición).

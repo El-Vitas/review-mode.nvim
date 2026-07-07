@@ -19,6 +19,7 @@ local function ensure_diffopt()
   if not has["linematch"] then add[#add + 1] = "linematch:60" end
   if not has["algorithm"] then add[#add + 1] = "algorithm:histogram" end
   if not has["indent-heuristic"] then add[#add + 1] = "indent-heuristic" end
+  if not has["inline"] then add[#add + 1] = "inline:char" end -- resaltar el texto exacto que cambió
   if #add > 0 then vim.o.diffopt = vim.o.diffopt .. "," .. table.concat(add, ",") end
 end
 
@@ -175,9 +176,11 @@ function M.sync(core)
   -- Sin folds: mostrar TODAS las líneas (no compactar lo que no cambió).
   open_all_folds(s.left_win)
   open_all_folds(cur)
-  -- Colores por columna: HEAD (izq) en rojo, archivo (der) en verde.
-  local del = "DiffChange:ReviewDiffDelLine,DiffText:ReviewDiffDelText,DiffAdd:ReviewDiffDelLine,DiffDelete:ReviewDiffFiller"
-  local add = "DiffChange:ReviewDiffAddLine,DiffText:ReviewDiffAddText,DiffAdd:ReviewDiffAddLine,DiffDelete:ReviewDiffFiller"
+  -- Colores por columna. Línea modificada = naranja suave (igual en ambas); el
+  -- TEXTO exacto que cambió = rojo (izq, quitado) / verde (der, agregado); línea
+  -- única de la columna = roja (izq, borrada) / verde (der, agregada).
+  local del = "DiffChange:ReviewDiffChange,DiffText:ReviewDiffDelText,DiffAdd:ReviewDiffDelLine,DiffDelete:ReviewDiffFiller"
+  local add = "DiffChange:ReviewDiffChange,DiffText:ReviewDiffAddText,DiffAdd:ReviewDiffAddLine,DiffDelete:ReviewDiffFiller"
   pcall(function() vim.wo[s.left_win].winhighlight = del end)
   pcall(function() vim.wo[cur].winhighlight = add end)
   vim.api.nvim_set_current_win(cur)
