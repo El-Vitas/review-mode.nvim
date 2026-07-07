@@ -50,6 +50,12 @@ function M.head_content(relpath, root)
   if not root then return nil end
   local out = vim.fn.systemlist({ "git", "-C", root, "show", "HEAD:" .. relpath })
   if vim.v.shell_error ~= 0 then return nil end
+  -- Normalizar CRLF: `git show` devuelve el contenido tal cual (con `\r` si el
+  -- archivo es CRLF), pero Neovim quita el `\r` en buffers `fileformat=dos`.
+  -- Sin esto, CADA línea diferiría por el `\r` -> "todo cambiado".
+  for i, l in ipairs(out) do
+    out[i] = (l:gsub("\r$", ""))
+  end
   return out
 end
 
