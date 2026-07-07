@@ -1,6 +1,7 @@
 local render = require("review.features.comments.render")
 local commands = require("review.features.comments.commands")
 local gutter = require("review.features.comments.gutter")
+local mode = require("review.features.comments.mode")
 
 local M = {}
 
@@ -56,6 +57,12 @@ function M.setup(core, opts)
       render.sync_positions(core, args.buf)
       core.state.persist()
     end,
+  })
+
+  -- Liberar peek marks de buffers cerrados/eliminados.
+  vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
+    group = group,
+    callback = function(args) mode.cleanup_buffer(args.buf) end,
   })
 
   commands.setup(core, opts)

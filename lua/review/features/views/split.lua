@@ -103,15 +103,18 @@ end
 function M.on_win_closed(win)
   local s = M._session
   if not s then return end
-  if win == s.left_win then
-    M._session = nil
-    restore_main(s)
-  elseif win == s.main_win then
-    M._session = nil
-    if s.left_win and vim.api.nvim_win_is_valid(s.left_win) then
+  if win ~= s.left_win and win ~= s.main_win then return end
+  M._session = nil
+  local is_left = (win == s.left_win)
+  -- Diferir: no se pueden cerrar/modificar ventanas DENTRO del autocmd WinClosed
+  -- (Neovim aborta con E855). Lo hacemos en el próximo tick.
+  vim.schedule(function()
+    if is_left then
+      restore_main(s)
+    elseif s.left_win and vim.api.nvim_win_is_valid(s.left_win) then
       pcall(vim.api.nvim_win_close, s.left_win, true)
     end
-  end
+  end)
 end
 
 --- Sincroniza el panel HEAD con el archivo de la ventana ACTUAL (la de edición).

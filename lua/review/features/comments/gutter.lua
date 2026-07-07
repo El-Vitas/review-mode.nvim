@@ -144,6 +144,20 @@ function M.setup(core)
     end,
   })
 
+  -- Liberar entradas de cache/estado al cerrar buffers/ventanas (evita que
+  -- crezcan con cada archivo/split abierto).
+  vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
+    group = grp,
+    callback = function(a) M._cache[a.buf] = nil end,
+  })
+  vim.api.nvim_create_autocmd("WinClosed", {
+    group = grp,
+    callback = function(a)
+      local win = tonumber(a.match)
+      if win then M._prev[win] = nil end
+    end,
+  })
+
   -- Al cambiar comentarios, invalidar cache y redibujar.
   if core.events then
     core.events.on("comments:changed", function()

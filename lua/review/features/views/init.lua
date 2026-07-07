@@ -66,8 +66,9 @@ function M.setup(core, opts)
   ensure_diff_hl()
   vim.api.nvim_create_autocmd("ColorScheme", { group = group, callback = ensure_diff_hl })
 
-  -- Si el archivo se recarga desde disco, invalidar el cache del HEAD de inline.
-  vim.api.nvim_create_autocmd("BufReadPost", {
+  -- Invalidar el cache del HEAD de inline al recargar el archivo, y LIBERARLO al
+  -- cerrar/eliminar el buffer (si no, el cache crece con cada archivo abierto).
+  vim.api.nvim_create_autocmd({ "BufReadPost", "BufDelete", "BufWipeout" }, {
     group = group,
     callback = function(a) inline.invalidate(a.buf) end,
   })

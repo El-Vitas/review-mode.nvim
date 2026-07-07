@@ -207,6 +207,14 @@ end
 local peek_ns = vim.api.nvim_create_namespace("review_peek")
 M._peek_marks = {} -- id -> { bufnr, extmark_id }
 
+--- Libera los peek marks de un buffer que se cerró/eliminó (evita que la tabla
+--- crezca con entradas de buffers muertos).
+function M.cleanup_buffer(bufnr)
+  for id, info in pairs(M._peek_marks) do
+    if info.bufnr == bufnr then M._peek_marks[id] = nil end
+  end
+end
+
 --- Cierra (quita) TODOS los peeks inline.
 function M.close_all_peeks()
   for _, info in pairs(M._peek_marks) do
