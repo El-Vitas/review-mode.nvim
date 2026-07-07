@@ -18,7 +18,7 @@ function M.setup(core, opts, views_mod)
   local function run(cmd_opts)
     local mode = cmd_opts.args
     if mode == "" then
-      vim.notify("uso: :ReviewView {normal|inline|split}", vim.log.levels.ERROR)
+      vim.notify("usage: :ReviewView {normal|inline|split}", vim.log.levels.ERROR)
       return
     end
     views_mod.set(core, vim.api.nvim_get_current_buf(), mode)
@@ -51,7 +51,7 @@ function M.setup(core, opts, views_mod)
     local bufnr = views_mod.resolve(vim.api.nvim_get_current_buf())
     local current = views_mod.mode[bufnr] or "normal"
     views_mod.set(core, bufnr, next_mode(current))
-  end, { desc = "review.nvim: ciclar vista normal/inline/split" })
+  end, { desc = "review.nvim: cycle view normal/inline/split" })
 end
 
 return M

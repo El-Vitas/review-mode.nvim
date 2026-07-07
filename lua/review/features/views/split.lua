@@ -46,7 +46,7 @@ end
 function M.open(core, bufnr)
   local relpath = core.git.rel_path(bufnr)
   if not relpath then
-    vim.notify("review.nvim: buffer fuera del repo, no se puede abrir split", vim.log.levels.WARN)
+    vim.notify("review.nvim: buffer is not in the repo, cannot open split", vim.log.levels.WARN)
     return
   end
 
@@ -56,7 +56,7 @@ function M.open(core, bufnr)
   local head_lines = core.git.head_content(relpath, root)
   if not head_lines then
     vim.notify(
-      "review.nvim: '" .. relpath .. "' no tiene versión en HEAD (archivo nuevo)",
+      "review.nvim: '" .. relpath .. "' has no HEAD version (new file)",
       vim.log.levels.WARN
     )
     return

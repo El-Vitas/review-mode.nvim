@@ -4,17 +4,17 @@ local M = {}
 
 local function yank(text)
   if not text or text == "" then
-    vim.notify("review.nvim: sin comentarios", vim.log.levels.INFO)
+    vim.notify("review.nvim: no comments", vim.log.levels.INFO)
     return
   end
   vim.fn.setreg("+", text)
-  vim.notify("review.nvim: comentarios copiados al registro +", vim.log.levels.INFO)
+  vim.notify("review.nvim: comments copied to the + register", vim.log.levels.INFO)
 end
 
 local function yank_file(core)
   local relpath = core.git.rel_path(0)
   if not relpath then
-    vim.notify("review.nvim: el buffer actual no pertenece al repo", vim.log.levels.WARN)
+    vim.notify("review.nvim: current buffer is not in the repo", vim.log.levels.WARN)
     return
   end
   yank(markdown.file(core, relpath))

@@ -45,7 +45,7 @@ end
 local function open_sidebar(kind)
   local ok, command = pcall(require, "neo-tree.command")
   if not ok then
-    vim.notify("review.nvim: neo-tree.nvim no está instalado, sidebar deshabilitado", vim.log.levels.WARN)
+    vim.notify("review.nvim: neo-tree.nvim is not installed, sidebar disabled", vim.log.levels.WARN)
     return
   end
   -- Recalcular el cache de archivos-con-comentarios al abrir, para que el
@@ -62,14 +62,14 @@ function M.setup(core, opts)
 
   local ok = pcall(require, "neo-tree.command")
   if not ok then
-    vim.notify("review.nvim: neo-tree.nvim no está instalado, sidebar deshabilitado", vim.log.levels.WARN)
+    vim.notify("review.nvim: neo-tree.nvim is not installed, sidebar disabled", vim.log.levels.WARN)
     return
   end
 
   vim.api.nvim_create_user_command("ReviewSidebar", function(cmd_opts)
     local kind = cmd_opts.args ~= "" and cmd_opts.args or "changed"
     if kind ~= "changed" and kind ~= "all" then
-      vim.notify("review.nvim: :ReviewSidebar espera 'changed' o 'all'", vim.log.levels.ERROR)
+      vim.notify("review.nvim: :ReviewSidebar expects 'changed' or 'all'", vim.log.levels.ERROR)
       return
     end
     open_sidebar(kind)
@@ -82,14 +82,14 @@ function M.setup(core, opts)
   vim.api.nvim_create_user_command("Rs", function(cmd_opts)
     local kind = cmd_opts.args ~= "" and cmd_opts.args or "changed"
     if kind ~= "changed" and kind ~= "all" then
-      vim.notify("review.nvim: :Rs espera 'changed' o 'all'", vim.log.levels.ERROR)
+      vim.notify("review.nvim: :Rs expects 'changed' or 'all'", vim.log.levels.ERROR)
       return
     end
     open_sidebar(kind)
   end, { nargs = "?", complete = function() return { "changed", "all" } end })
 
   local keymap_lhs = (opts.leader or "<leader>r") .. "s"
-  vim.keymap.set("n", keymap_lhs, function() open_sidebar("changed") end, { desc = "Review: sidebar (cambiados)" })
+  vim.keymap.set("n", keymap_lhs, function() open_sidebar("changed") end, { desc = "Review: sidebar (changed)" })
 
   if not M._subscribed then
     core.events.on("comments:changed", function()

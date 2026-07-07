@@ -86,7 +86,7 @@ end
 -- <Esc> a cancelar (así salir de insert no borra lo escrito).
 local function open_popup(o)
   local Popup = require("nui.popup")
-  local title = o.title or " Comentario "
+  local title = o.title or " Comment "
   local popup = Popup({
     enter = true,
     focusable = true,
@@ -95,7 +95,7 @@ local function open_popup(o)
       text = {
         top = title,
         top_align = "left",
-        bottom = " Esc y Enter para enviar · q para cancelar ",
+        bottom = " Esc then Enter to send · q to cancel ",
         bottom_align = "right",
       },
     },
@@ -151,8 +151,8 @@ function M.add_here(core, opts)
   end
 
   local rango = (end_lnum ~= lnum)
-      and string.format(" Comentario L%d-%d ", math.min(lnum, end_lnum), math.max(lnum, end_lnum))
-      or string.format(" Comentario L%d ", lnum)
+      and string.format(" Comment L%d-%d ", math.min(lnum, end_lnum), math.max(lnum, end_lnum))
+      or string.format(" Comment L%d ", lnum)
 
   open_popup({
     title = rango,
@@ -171,11 +171,11 @@ function M.edit_here(core)
   local lnum = vim.fn.line(".")
   local c = find_at(core, rel, clamp(bufnr, lnum))
   if not c then
-    vim.notify("review.nvim: no hay comentario en esta línea", vim.log.levels.INFO)
+    vim.notify("review.nvim: no comment on this line", vim.log.levels.INFO)
     return
   end
   open_popup({
-    title = " Editar comentario ",
+    title = " Edit comment ",
     initial = c.text or "",
     start_insert = false,
     on_save = function(text)
@@ -228,7 +228,7 @@ local function build_virt_lines(c)
   local range = (c.end_lnum and c.end_lnum ~= c.lnum)
       and string.format("L%d–%d", c.lnum, c.end_lnum)
       or ("L" .. c.lnum)
-  local status = c.resolved and "resuelto" or "abierto"
+  local status = c.resolved and "resolved" or "open"
   local icon = c.resolved and "✓" or "💬"
   local header = string.format(" %s  %s   ·   %s   ·   %s ", icon, status, range, c.author or "user")
 
@@ -236,7 +236,7 @@ local function build_virt_lines(c)
   for _, tl in ipairs(vim.split(c.text or "", "\n", { plain = true })) do
     body[#body + 1] = " " .. tl .. " "
   end
-  if #body == 0 then body = { " (sin texto) " } end
+  if #body == 0 then body = { " (no text) " } end
 
   local w = vim.fn.strdisplaywidth(header)
   for _, l in ipairs(body) do w = math.max(w, vim.fn.strdisplaywidth(l)) end
@@ -272,7 +272,7 @@ function M.peek_here(core)
   if not rel then return end
   local c = best_at(core, rel, clamp(bufnr, vim.fn.line(".")))
   if not c then
-    vim.notify("review.nvim: no hay comentario en esta línea", vim.log.levels.INFO)
+    vim.notify("review.nvim: no comment on this line", vim.log.levels.INFO)
     return
   end
   local info = M._peek_marks[c.id]
@@ -293,7 +293,7 @@ function M.peek_all(core)
   if not rel then return end
   local list = core.state.for_path(rel)
   if #list == 0 then
-    vim.notify("review.nvim: no hay comentarios en este archivo", vim.log.levels.INFO)
+    vim.notify("review.nvim: no comments in this file", vim.log.levels.INFO)
     return
   end
   for _, c in ipairs(list) do

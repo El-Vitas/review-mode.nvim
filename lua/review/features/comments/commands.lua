@@ -46,7 +46,7 @@ end
 -- Sobre una entrada: <CR> ir (y cerrar), d borrar, x resolver/des-resolver,
 -- q cerrar. Una winbar arriba muestra los atajos. `provider` se re-consulta
 -- para refrescar la lista tras d/x.
-local FILTER_LABEL = { all = "todos", open = "abiertos", resolved = "resueltos" }
+local FILTER_LABEL = { all = "all", open = "open", resolved = "resolved" }
 
 local function open_list(core, provider, title)
   local ctx = { filter = "all", raw = 0 }
@@ -69,7 +69,7 @@ local function open_list(core, provider, title)
 
   local items = items_now()
   if ctx.raw == 0 then
-    vim.notify("review.nvim: no hay comentarios" .. (title and (" en " .. title) or ""), vim.log.levels.INFO)
+    vim.notify("review.nvim: no comments" .. (title and (" in " .. title) or ""), vim.log.levels.INFO)
     return
   end
   vim.fn.setqflist({}, " ", { title = ftitle, items = items })
@@ -79,8 +79,8 @@ local function open_list(core, provider, title)
   local qbuf = vim.api.nvim_win_get_buf(qwin)
 
   local function update_winbar()
-    vim.wo[qwin].winbar = "%#Title# review.nvim %* ‹CR› ir · ‹d› borrar · ‹x› resolver · ‹f› filtro:"
-      .. FILTER_LABEL[ctx.filter] .. " · ‹q› cerrar"
+    vim.wo[qwin].winbar = "%#Title# review.nvim %* ‹Enter› go · ‹d› delete · ‹x› resolve · ‹f› filter:"
+      .. FILTER_LABEL[ctx.filter] .. " · ‹q› close"
   end
   update_winbar()
 
@@ -104,14 +104,14 @@ local function open_list(core, provider, title)
     ctx.filter = (ctx.filter == "all" and "open") or (ctx.filter == "open" and "resolved") or "all"
     refresh()
     update_winbar()
-  end, { buffer = qbuf, nowait = true, desc = "review.nvim: filtrar todos/abiertos/resueltos" })
+  end, { buffer = qbuf, nowait = true, desc = "review.nvim: filter all/open/resolved" })
 
   vim.keymap.set("n", "<CR>", function()
     local idx = vim.fn.line(".")
     vim.cmd("cclose")
     pcall(vim.cmd, idx .. "cc")
-  end, { buffer = qbuf, nowait = true, desc = "review.nvim: ir al comentario y cerrar" })
-  vim.keymap.set("n", "q", "<Cmd>cclose<CR>", { buffer = qbuf, nowait = true, desc = "review.nvim: cerrar lista" })
+  end, { buffer = qbuf, nowait = true, desc = "review.nvim: go to comment and close" })
+  vim.keymap.set("n", "q", "<Cmd>cclose<CR>", { buffer = qbuf, nowait = true, desc = "review.nvim: close list" })
   vim.keymap.set("n", "d", function()
     local c = comment_at_cursor()
     if not c then return end
@@ -119,7 +119,7 @@ local function open_list(core, provider, title)
     core.state.persist()
     rerender_file(core, c)
     refresh()
-  end, { buffer = qbuf, nowait = true, desc = "review.nvim: borrar comentario" })
+  end, { buffer = qbuf, nowait = true, desc = "review.nvim: delete comment" })
   vim.keymap.set("n", "x", function()
     local c = comment_at_cursor()
     if not c then return end
@@ -127,7 +127,7 @@ local function open_list(core, provider, title)
     core.state.persist()
     rerender_file(core, c)
     refresh()
-  end, { buffer = qbuf, nowait = true, desc = "review.nvim: resolver/des-resolver" })
+  end, { buffer = qbuf, nowait = true, desc = "review.nvim: resolve/unresolve" })
 end
 
 -- Re-renderiza los comentarios en todos los buffers cargados (tras un toggle).
@@ -148,7 +148,7 @@ function M.setup(core, opts)
   local function list_file()
     local rel = core.git.rel_path(0)
     if not rel then
-      vim.notify("review.nvim: el buffer actual no pertenece al repo", vim.log.levels.WARN)
+      vim.notify("review.nvim: current buffer is not in the repo", vim.log.levels.WARN)
       return
     end
     open_list(core, function() return core.state.for_path(rel) end, rel)
@@ -157,7 +157,7 @@ function M.setup(core, opts)
     render.hidden = not render.hidden
     rerender_all(core)
     pcall(vim.cmd, "redrawstatus!") -- refrescar el gutter (corchetes) también
-    vim.notify("review.nvim: comentarios " .. (render.hidden and "ocultos" or "visibles"), vim.log.levels.INFO)
+    vim.notify("review.nvim: comments " .. (render.hidden and "hidden" or "visible"), vim.log.levels.INFO)
   end
   local function peek() mode.peek_here(core) end
   local function peek_all() mode.peek_all(core) end
@@ -180,17 +180,17 @@ function M.setup(core, opts)
   vim.api.nvim_create_user_command("ReviewPeekClose", peek_close, {}) -- cerrar todos los flotantes
   vim.api.nvim_create_user_command("Rpc", peek_close, {})
 
-  vim.keymap.set("n", leader .. "r", function() mode.edit_here(core) end, { desc = "Review: editar comentario de la línea" })
-  vim.keymap.set("n", leader .. "c", function() mode.add_here(core, {}) end, { desc = "Review: comentar línea" })
-  vim.keymap.set("v", leader .. "c", function() mode.add_here(core, {}) end, { desc = "Review: comentar rango" })
-  vim.keymap.set("n", leader .. "d", function() mode.delete_here(core) end, { desc = "Review: borrar comentario" })
-  vim.keymap.set("n", leader .. "x", function() mode.resolve_here(core) end, { desc = "Review: resolver comentario" })
-  vim.keymap.set("n", leader .. "l", list_all, { desc = "Review: listar comentarios (global)" })
-  vim.keymap.set("n", leader .. "L", list_file, { desc = "Review: listar comentarios del archivo" })
-  vim.keymap.set("n", leader .. "h", toggle_hidden, { desc = "Review: ocultar/mostrar comentarios" })
-  vim.keymap.set("n", leader .. "p", peek, { desc = "Review: ver comentario (flotante)" })
-  vim.keymap.set("n", leader .. "P", peek_close, { desc = "Review: cerrar todos los flotantes" })
-  vim.keymap.set("n", leader .. "o", peek_all, { desc = "Review: abrir peek de todos los comentarios" })
+  vim.keymap.set("n", leader .. "r", function() mode.edit_here(core) end, { desc = "Review: edit comment on line" })
+  vim.keymap.set("n", leader .. "c", function() mode.add_here(core, {}) end, { desc = "Review: comment line" })
+  vim.keymap.set("v", leader .. "c", function() mode.add_here(core, {}) end, { desc = "Review: comment range" })
+  vim.keymap.set("n", leader .. "d", function() mode.delete_here(core) end, { desc = "Review: delete comment" })
+  vim.keymap.set("n", leader .. "x", function() mode.resolve_here(core) end, { desc = "Review: resolve comment" })
+  vim.keymap.set("n", leader .. "l", list_all, { desc = "Review: list comments (global)" })
+  vim.keymap.set("n", leader .. "L", list_file, { desc = "Review: list comments (file)" })
+  vim.keymap.set("n", leader .. "h", toggle_hidden, { desc = "Review: hide/show comments" })
+  vim.keymap.set("n", leader .. "p", peek, { desc = "Review: peek comment" })
+  vim.keymap.set("n", leader .. "P", peek_close, { desc = "Review: close all peeks" })
+  vim.keymap.set("n", leader .. "o", peek_all, { desc = "Review: peek all comments" })
 end
 
 return M
