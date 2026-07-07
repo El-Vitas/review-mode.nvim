@@ -61,7 +61,13 @@ extmarks** → hay que re-anclar a mano y siempre queda frágil. En cambio:
 
 Resultado: los extmarks de las zonas SIN cambios **no se mueven**, y en las zonas
 con inserción/borrado **se corren solos** — exactamente como si el agente hubiera
-editado dentro del buffer. Es decir, **los comentarios se re-anclan automáticamente
+editado dentro del buffer.
+
+> **Validado empíricamente (nvim 0.12):** insertar líneas arriba de un extmark lo
+> corre hacia abajo (row 4→5); `set_text` sin cambiar la cantidad de líneas no
+> mueve un extmark posterior (2→2); borrar arriba lo sube (5→4). También
+> confirmado que `vim.uv.new_fs_event` y `vim.diff` existen. La técnica del patch
+> por diff re-ancla los comentarios sola. Es decir, **los comentarios se re-anclan automáticamente
 vía extmarks, sin remapeo manual**. Además:
 - El buffer queda `nomodified` (coincide con disco).
 - Las vistas de diff (inline/split) recomputan solas (comparan buffer vs HEAD).
