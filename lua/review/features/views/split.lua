@@ -163,8 +163,11 @@ function M.sync(core)
   -- esto se ve más apagado/con otros colores).
   pcall(vim.treesitter.start, scratch)
 
-  -- Diff en ambas ventanas + forzar recálculo (evita que el diff quede con
-  -- estado viejo al reusar el buffer HEAD entre archivos → "todo cambiado").
+  -- Diff en ambas ventanas + forzar recálculo. Hacemos diffoff ANTES para que
+  -- al reusar el buffer HEAD entre archivos no quede estado viejo del diff
+  -- (síntoma: "todo cambiado" aunque solo cambiaron unas líneas).
+  pcall(vim.api.nvim_win_call, s.left_win, function() vim.cmd("diffoff") end)
+  pcall(vim.api.nvim_win_call, cur, function() vim.cmd("diffoff") end)
   pcall(vim.api.nvim_win_call, s.left_win, function() vim.cmd("diffthis") end)
   pcall(vim.api.nvim_win_call, cur, function() vim.cmd("diffthis") end)
   -- Sin folds: mostrar TODAS las líneas (no compactar lo que no cambió).
