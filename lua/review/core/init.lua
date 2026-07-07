@@ -2,5 +2,6 @@
 local M = {
   registry = require("review.core.registry"),
   store = require("review.core.store"),
+  git = require("review.core.git"),
 }
 return M
