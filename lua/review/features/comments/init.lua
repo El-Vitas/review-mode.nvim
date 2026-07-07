@@ -14,6 +14,11 @@ local function ensure_hl()
   vim.api.nvim_set_hl(0, "ReviewCommentLineResolved", { bg = "#2a2b38", default = true })
   vim.api.nvim_set_hl(0, "ReviewCommentSign", { fg = "#8aadf4", bold = true, default = true })
   vim.api.nvim_set_hl(0, "ReviewCommentSignResolved", { fg = "#6e738d", default = true })
+  -- Paleta cíclica del corchete (un color por comentario).
+  local palette = { "#8aadf4", "#a6da95", "#c6a0f6", "#f5a97f", "#8bd5ca", "#eed49f" }
+  for i, hex in ipairs(palette) do
+    vim.api.nvim_set_hl(0, "ReviewCommentSign" .. i, { fg = hex, bold = true, default = true })
+  end
   -- Badge al final de la línea: chip con fondo azul y bordecito (edge).
   vim.api.nvim_set_hl(0, "ReviewCommentBadge", { bg = "#3b4b71", fg = "#cad3f5", default = true })
   vim.api.nvim_set_hl(0, "ReviewCommentBadgeEdge", { bg = "#3b4b71", fg = "#8aadf4", default = true })

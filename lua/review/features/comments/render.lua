@@ -38,10 +38,13 @@ function M.render(core, bufnr)
     if #text > 46 then text = text:sub(1, 44) .. "…" end
 
     local resolved = c.resolved
-    local alt = (idx % 2 == 0) -- tono alternado para separar consecutivos
+    local alt = (idx % 2 == 0) -- tono de fondo alternado para separar consecutivos
     local line_hl = resolved and "ReviewCommentLineResolved"
         or (alt and "ReviewCommentLine2" or "ReviewCommentLine")
-    local sign_hl = resolved and "ReviewCommentSignResolved" or "ReviewCommentSign"
+    -- Color de corchete CÍCLICO por comentario (6 tonos): así comentarios
+    -- distintos se distinguen por color, no solo por el corchete.
+    local sign_hl = resolved and "ReviewCommentSignResolved"
+        or ("ReviewCommentSign" .. (((idx - 1) % 6) + 1))
     local badge_hl = resolved and "ReviewCommentBadgeResolved" or "ReviewCommentBadge"
     local edge_hl = resolved and "ReviewCommentBadgeEdgeResolved" or "ReviewCommentBadgeEdge"
     local icon = resolved and "✓" or "💬"
