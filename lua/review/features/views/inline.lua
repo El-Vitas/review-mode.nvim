@@ -12,7 +12,7 @@ function M.render(core, bufnr)
   M.clear(core, bufnr)
 
   local relpath = core.git.rel_path(bufnr)
-  local root = core.git.root()
+  local root = core.git.root(bufnr)
   if not relpath or not root then return end
 
   local hunks = diff.hunks_for(relpath, root)

@@ -48,7 +48,7 @@ function M.setup(core, opts, views_mod)
   end
 
   vim.keymap.set("n", leader .. "v", function()
-    local bufnr = vim.api.nvim_get_current_buf()
+    local bufnr = views_mod.resolve(vim.api.nvim_get_current_buf())
     local current = views_mod.mode[bufnr] or "normal"
     views_mod.set(core, bufnr, next_mode(current))
   end, { desc = "review.nvim: ciclar vista normal/inline/split" })

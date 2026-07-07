@@ -23,10 +23,18 @@ local function apply(core, bufnr, mode)
   -- "normal": nada que aplicar, el buffer se ve como siempre.
 end
 
+--- Resuelve el buffer efectivo: si `bufnr` es el panel HEAD (scratch) de un
+--- split, devuelve el archivo real dueño; si no, el mismo bufnr. Así los
+--- comandos ejecutados desde la ventana izquierda actúan sobre el archivo.
+function M.resolve(bufnr)
+  return split.owner_of(bufnr) or bufnr
+end
+
 --- Cambia el modo de vista de bufnr. Limpia la vista previa antes de aplicar
 --- la nueva. Idempotente si mode == modo actual. No-op si mode es inválido.
 function M.set(core, bufnr, mode)
   if not VALID_MODES[mode] then return end
+  bufnr = M.resolve(bufnr)
   local current = M.mode[bufnr] or "normal"
   if current == mode then return end
 
