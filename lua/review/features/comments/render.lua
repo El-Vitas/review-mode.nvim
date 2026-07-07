@@ -41,27 +41,17 @@ function M.render(core, bufnr)
     local alt = (idx % 2 == 0) -- tono de fondo alternado para separar consecutivos
     local line_hl = resolved and "ReviewCommentLineResolved"
         or (alt and "ReviewCommentLine2" or "ReviewCommentLine")
-    -- Color de corchete CÍCLICO por comentario (6 tonos): así comentarios
-    -- distintos se distinguen por color, no solo por el corchete.
-    local sign_hl = resolved and "ReviewCommentSignResolved"
-        or ("ReviewCommentSign" .. (((idx - 1) % 6) + 1))
     local badge_hl = resolved and "ReviewCommentBadgeResolved" or "ReviewCommentBadge"
     local edge_hl = resolved and "ReviewCommentBadgeEdgeResolved" or "ReviewCommentBadgeEdge"
     local icon = resolved and "✓" or "💬"
 
-    -- Corchete en la columna de signos que DELIMITA cada comentario (┌ arriba,
-    -- │ medio, └ abajo; ▌ si es de una sola línea). Así, cuando hay varios
-    -- comentarios juntos, se distingue dónde empieza y termina cada uno.
-    local multi = end_lnum > lnum
-    local head_sign = multi and "┌" or "▌"
-
     -- Extmark ANCLA (primera línea): lleva end_row para rastrear el rango al
-    -- editar, el corchete, el resaltado de línea y un BADGE con fondo y
-    -- bordecito al final. Es el que usa sync_positions; para 1 línea, el único.
+    -- editar, el resaltado de línea y un BADGE con fondo y bordecito al final.
+    -- Es el que usa sync_positions; para 1 línea, el único.
+    -- (Los corchetes anidados de la izquierda los dibuja el statuscolumn — ver
+    -- gutter.lua — porque la columna de signos solo admite 1 signo por línea.)
     local id = vim.api.nvim_buf_set_extmark(bufnr, core.ns.comments, row, 0, {
       end_row = end_lnum - 1,
-      sign_text = head_sign,
-      sign_hl_group = sign_hl,
       line_hl_group = line_hl,
       virt_text = {
         { "  ", "None" },
@@ -73,11 +63,9 @@ function M.render(core, bufnr)
     })
     c._extmark_id = id
 
-    -- Líneas de continuación: │ (medio) y └ (última) + mismo fondo.
+    -- Líneas de continuación: mismo fondo (el borde/corchete lo pinta el gutter).
     for r = row + 1, end_lnum - 1 do
       vim.api.nvim_buf_set_extmark(bufnr, core.ns.comments, r, 0, {
-        sign_text = (r == end_lnum - 1) and "└" or "│",
-        sign_hl_group = sign_hl,
         line_hl_group = line_hl,
       })
     end

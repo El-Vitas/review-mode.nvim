@@ -1,5 +1,6 @@
 local render = require("review.features.comments.render")
 local commands = require("review.features.comments.commands")
+local gutter = require("review.features.comments.gutter")
 
 local M = {}
 
@@ -58,6 +59,7 @@ function M.setup(core, opts)
   })
 
   commands.setup(core, opts)
+  gutter.setup(core)
 end
 
 require("review.core").registry.register({ name = "comments", setup = M.setup })
