@@ -18,7 +18,7 @@ local applying = false
 --    ROJA / VERDE completa.
 -- Override-ables.
 local function ensure_diff_hl()
-  vim.api.nvim_set_hl(0, "ReviewDiffChange", { bg = "#3a3226", default = true }) -- modificada: naranja suave
+  vim.api.nvim_set_hl(0, "ReviewDiffChange", { bg = "#44401d", default = true }) -- modificada: amarillo suave
   vim.api.nvim_set_hl(0, "ReviewDiffDelLine", { bg = "#4a2732", default = true }) -- línea borrada entera
   vim.api.nvim_set_hl(0, "ReviewDiffDelText", { bg = "#6e2b3a", fg = "#ed8796", bold = true, default = true }) -- texto quitado
   vim.api.nvim_set_hl(0, "ReviewDiffAddLine", { bg = "#26382c", default = true }) -- línea agregada entera
