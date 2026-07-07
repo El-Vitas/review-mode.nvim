@@ -99,6 +99,20 @@ function M.setup(core, opts)
   end
 end
 
+--- Marcador textual para un relpath, pensado para enganchar en un renderer
+--- custom de neo-tree (ver docs/plans/04-sidebar.md Task 4). Se basa en el
+--- último cache calculado por M._refresh(); si nunca corrió, lo calcula ahora.
+--- @param relpath string
+--- @return string|nil
+function M.comment_marker(relpath)
+  if not M._core then return nil end
+  M._files_with_comments_cache = M._files_with_comments_cache or M.files_with_comments(M._core)
+  if M._files_with_comments_cache[relpath] then
+    return "💬"
+  end
+  return nil
+end
+
 require("review.core").registry.register({ name = "sidebar", setup = M.setup })
 
 return M
