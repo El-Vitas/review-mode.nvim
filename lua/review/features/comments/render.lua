@@ -19,8 +19,13 @@ function M.render(core, bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, core.ns.comments, 0, -1)
   if M.hidden then return end
 
-  local comments = core.state.for_path(rel)
-  for _, c in ipairs(comments) do
+  -- Orden estable por línea para poder ALTERNAR el tono de fondo entre
+  -- comentarios consecutivos (así dos comentarios pegados no se ven como uno).
+  local comments = {}
+  for _, c in ipairs(core.state.for_path(rel)) do comments[#comments + 1] = c end
+  table.sort(comments, function(a, b) return (a.lnum or 0) < (b.lnum or 0) end)
+
+  for idx, c in ipairs(comments) do
     local lnum = clamp(bufnr, c.lnum or 1)
     local end_lnum = clamp(bufnr, c.end_lnum or lnum)
     if end_lnum < lnum then lnum, end_lnum = end_lnum, lnum end
@@ -33,7 +38,9 @@ function M.render(core, bufnr)
     if #text > 46 then text = text:sub(1, 44) .. "…" end
 
     local resolved = c.resolved
-    local line_hl = resolved and "ReviewCommentLineResolved" or "ReviewCommentLine"
+    local alt = (idx % 2 == 0) -- tono alternado para separar consecutivos
+    local line_hl = resolved and "ReviewCommentLineResolved"
+        or (alt and "ReviewCommentLine2" or "ReviewCommentLine")
     local sign_hl = resolved and "ReviewCommentSignResolved" or "ReviewCommentSign"
     local badge_hl = resolved and "ReviewCommentBadgeResolved" or "ReviewCommentBadge"
     local edge_hl = resolved and "ReviewCommentBadgeEdgeResolved" or "ReviewCommentBadgeEdge"

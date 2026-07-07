@@ -219,7 +219,10 @@ end
 local function install_peek_visibility()
   if M._peek_vis_installed then return end
   M._peek_vis_installed = true
-  vim.api.nvim_create_autocmd({ "WinScrolled", "CursorMoved", "CursorMovedI" }, {
+  -- Solo WinScrolled: el peek queda pinneado a su línea y se mueve con el
+  -- scroll; NO reacciona al cursor (no te persigue). Se oculta si su rango sale
+  -- de la vista (para no quedar clavado al borde).
+  vim.api.nvim_create_autocmd({ "WinScrolled" }, {
     group = vim.api.nvim_create_augroup("ReviewPeekVis", { clear = true }),
     callback = function()
       local alive = {}

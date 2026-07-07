@@ -10,6 +10,7 @@ local M = {}
 local function ensure_hl()
   -- Resaltado del rango: fondo azul tenue + barra lateral azul.
   vim.api.nvim_set_hl(0, "ReviewCommentLine", { bg = "#2c3a52", default = true })
+  vim.api.nvim_set_hl(0, "ReviewCommentLine2", { bg = "#26436b", default = true }) -- tono alterno
   vim.api.nvim_set_hl(0, "ReviewCommentLineResolved", { bg = "#2a2b38", default = true })
   vim.api.nvim_set_hl(0, "ReviewCommentSign", { fg = "#8aadf4", bold = true, default = true })
   vim.api.nvim_set_hl(0, "ReviewCommentSignResolved", { fg = "#6e738d", default = true })
