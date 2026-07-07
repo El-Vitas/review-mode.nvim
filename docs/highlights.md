@@ -12,10 +12,19 @@ sobreescribirlos** en tu config (después de cargar el plugin, o en un autocmd
 | `ReviewCommentLine` | fondo del rango (comentario par) | `bg #2c3a52` (azul) |
 | `ReviewCommentLine2` | fondo del rango (comentario impar, alterna) | `bg #26436b` |
 | `ReviewCommentLineResolved` | fondo de rango resuelto | `bg #2a2b38` |
+| `ReviewCommentAgent` | fondo del rango (comentario del agente) | `bg #3a2c52` (violeta) |
+| `ReviewCommentStale` | fondo del rango (anclaje incierto, ⚠) | `bg #4a3a1d` (ámbar) |
 | `ReviewCommentSign1..6` | corchete del gutter (color cíclico por comentario) | blue/green/mauve/peach/teal/yellow |
+| `ReviewCommentSignAgent` | corchete del gutter para comentario del agente | `fg #c6a0f6` (violeta) |
 | `ReviewCommentSignResolved` | corchete de resuelto | `fg #6e738d` |
 | `ReviewCommentBadge` / `…Edge` | chip al final de línea + su borde | `bg #3b4b71` |
+| `ReviewCommentBadgeAgent` / `…EdgeAgent` | chip del agente + su borde | `bg #3a2c52` (violeta) |
 | `ReviewCommentBadgeResolved` / `…EdgeResolved` | chip resuelto | `bg #33343f` |
+
+**Autoría / hilos / stale:** los comentarios del agente (`author ~= "user"`) se pintan con fondo
+violeta e ícono 🤖; los que tienen respuestas muestran un sufijo `↩N` en el badge; los marcados
+`stale` (la línea anclada cambió en disco) se pintan ámbar con ⚠. El peek (`<leader>rp`) muestra el
+hilo completo: el comentario padre y, sangradas debajo, las respuestas con su autor.
 
 ## Peek inline
 

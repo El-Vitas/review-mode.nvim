@@ -21,8 +21,12 @@ function M.render(core, bufnr)
 
   -- Orden estable por línea para poder ALTERNAR el tono de fondo entre
   -- comentarios consecutivos (así dos comentarios pegados no se ven como uno).
+  -- Las respuestas (reply_to) NO se pintan como comentarios independientes:
+  -- viven dentro del hilo de su padre (peek). Solo se pinta el top-level.
   local comments = {}
-  for _, c in ipairs(core.state.for_path(rel)) do comments[#comments + 1] = c end
+  for _, c in ipairs(core.state.for_path(rel)) do
+    if not c.reply_to then comments[#comments + 1] = c end
+  end
   table.sort(comments, function(a, b) return (a.lnum or 0) < (b.lnum or 0) end)
 
   for idx, c in ipairs(comments) do
@@ -38,12 +42,36 @@ function M.render(core, bufnr)
     if #text > 46 then text = text:sub(1, 44) .. "…" end
 
     local resolved = c.resolved
+    local is_agent = c.author and c.author ~= "user"
     local alt = (idx % 2 == 0) -- tono de fondo alternado para separar consecutivos
-    local line_hl = resolved and "ReviewCommentLineResolved"
-        or (alt and "ReviewCommentLine2" or "ReviewCommentLine")
-    local badge_hl = resolved and "ReviewCommentBadgeResolved" or "ReviewCommentBadge"
-    local edge_hl = resolved and "ReviewCommentBadgeEdgeResolved" or "ReviewCommentBadgeEdge"
-    local icon = resolved and "✓" or "💬"
+    -- Prioridad de fondo: resuelto > stale > agente > normal (alternado).
+    local line_hl, badge_hl, edge_hl
+    if resolved then
+      line_hl = "ReviewCommentLineResolved"
+      badge_hl = "ReviewCommentBadgeResolved"
+      edge_hl = "ReviewCommentBadgeEdgeResolved"
+    elseif c.stale then
+      line_hl = "ReviewCommentStale"
+      badge_hl = "ReviewCommentBadge"
+      edge_hl = "ReviewCommentBadgeEdge"
+    elseif is_agent then
+      line_hl = "ReviewCommentAgent"
+      badge_hl = "ReviewCommentBadgeAgent"
+      edge_hl = "ReviewCommentBadgeEdgeAgent"
+    else
+      line_hl = alt and "ReviewCommentLine2" or "ReviewCommentLine"
+      badge_hl = "ReviewCommentBadge"
+      edge_hl = "ReviewCommentBadgeEdge"
+    end
+
+    local icon
+    if resolved then icon = "✓"
+    elseif is_agent then icon = "🤖"
+    else icon = "💬" end
+    if c.stale then icon = "⚠ " .. icon end
+    -- Sufijo con la cantidad de respuestas (threading).
+    local nrep = #core.state.replies(c.id)
+    local suffix = nrep > 0 and (" ↩" .. nrep) or ""
 
     -- Extmark ANCLA (primera línea): lleva end_row para rastrear el rango al
     -- editar, el resaltado de línea y un BADGE con fondo y bordecito al final.
@@ -56,7 +84,7 @@ function M.render(core, bufnr)
       virt_text = {
         { "  ", "None" },
         { "▏", edge_hl },
-        { " " .. icon .. " " .. text .. " ", badge_hl },
+        { " " .. icon .. " " .. text .. suffix .. " ", badge_hl },
         { "▕", edge_hl },
       },
       virt_text_pos = "eol",

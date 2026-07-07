@@ -12,9 +12,11 @@ end
 
 local function find_at(core, rel, lnum)
   for _, c in ipairs(core.state.for_path(rel)) do
-    local lo = math.min(c.lnum, c.end_lnum or c.lnum)
-    local hi = math.max(c.lnum, c.end_lnum or c.lnum)
-    if lnum >= lo and lnum <= hi then return c end
+    if not c.reply_to then -- las respuestas no son objetivo directo del cursor
+      local lo = math.min(c.lnum, c.end_lnum or c.lnum)
+      local hi = math.max(c.lnum, c.end_lnum or c.lnum)
+      if lnum >= lo and lnum <= hi then return c end
+    end
   end
   return nil
 end
@@ -197,12 +199,14 @@ end
 local function best_at(core, rel, lnum)
   local best, best_span
   for _, c in ipairs(core.state.for_path(rel)) do
-    local lo = math.min(c.lnum, c.end_lnum or c.lnum)
-    local hi = math.max(c.lnum, c.end_lnum or c.lnum)
-    if lnum >= lo and lnum <= hi then
-      local span = hi - lo
-      if not best or span < best_span or (span == best_span and lo > best.lnum) then
-        best, best_span = c, span
+    if not c.reply_to then
+      local lo = math.min(c.lnum, c.end_lnum or c.lnum)
+      local hi = math.max(c.lnum, c.end_lnum or c.lnum)
+      if lnum >= lo and lnum <= hi then
+        local span = hi - lo
+        if not best or span < best_span or (span == best_span and lo > best.lnum) then
+          best, best_span = c, span
+        end
       end
     end
   end
@@ -240,12 +244,16 @@ local function pad(s, w)
 end
 
 -- Construye las virtual lines (una tabla de chunks por línea) del peek de `c`.
-local function build_virt_lines(c)
+-- `replies` (opcional) es la lista de respuestas del hilo, que se muestran
+-- sangradas debajo del comentario padre.
+local function build_virt_lines(c, replies)
   local range = (c.end_lnum and c.end_lnum ~= c.lnum)
       and string.format("L%d–%d", c.lnum, c.end_lnum)
       or ("L" .. c.lnum)
   local status = c.resolved and "resolved" or "open"
-  local icon = c.resolved and "✓" or "💬"
+  local is_agent = c.author and c.author ~= "user"
+  local icon = c.resolved and "✓" or (is_agent and "🤖" or "💬")
+  if c.stale then icon = "⚠ " .. icon end
   local header = string.format(" %s  %s   ·   %s   ·   %s ", icon, status, range, c.author or "user")
 
   local body = {}
@@ -253,6 +261,15 @@ local function build_virt_lines(c)
     body[#body + 1] = " " .. tl .. " "
   end
   if #body == 0 then body = { " (no text) " } end
+
+  -- Respuestas del hilo, sangradas y con su autor.
+  for _, r in ipairs(replies or {}) do
+    local rauthor = r.author or "agent"
+    local ricon = (rauthor ~= "user") and "🤖" or "💬"
+    local rlines = vim.split(r.text or "", "\n", { plain = true })
+    body[#body + 1] = string.format("   ↳ %s %s: %s ", ricon, rauthor, rlines[1] or "")
+    for i = 2, #rlines do body[#body + 1] = "        " .. rlines[i] .. " " end
+  end
 
   local w = vim.fn.strdisplaywidth(header)
   for _, l in ipairs(body) do w = math.max(w, vim.fn.strdisplaywidth(l)) end
@@ -269,11 +286,12 @@ local function build_virt_lines(c)
 end
 
 -- Inserta el peek de `c` debajo de su última línea, en `bufnr`.
-local function open_peek_inline(bufnr, c)
+local function open_peek_inline(core, bufnr, c)
   local last = math.max(c.lnum, c.end_lnum or c.lnum)
   local anchor = clamp(bufnr, last) - 1
+  local replies = core.state.replies and core.state.replies(c.id) or {}
   local id = vim.api.nvim_buf_set_extmark(bufnr, peek_ns, anchor, 0, {
-    virt_lines = build_virt_lines(c),
+    virt_lines = build_virt_lines(c, replies),
     virt_lines_above = false,
   })
   M._peek_marks[c.id] = { bufnr = bufnr, id = id }
@@ -299,7 +317,7 @@ function M.peek_here(core)
     M._peek_marks[c.id] = nil
     return
   end
-  open_peek_inline(bufnr, c)
+  open_peek_inline(core, bufnr, c)
 end
 
 --- Abre el peek inline de CADA comentario del archivo actual ("abrir todos").
@@ -313,7 +331,7 @@ function M.peek_all(core)
     return
   end
   for _, c in ipairs(list) do
-    if not M._peek_marks[c.id] then open_peek_inline(bufnr, c) end
+    if not c.reply_to and not M._peek_marks[c.id] then open_peek_inline(core, bufnr, c) end
   end
 end
 

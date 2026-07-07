@@ -16,6 +16,12 @@ local function ensure_hl()
   vim.api.nvim_set_hl(0, "ReviewCommentLineResolved", { bg = "#2a2b38", default = true })
   vim.api.nvim_set_hl(0, "ReviewCommentSign", { fg = "#8aadf4", bold = true, default = true })
   vim.api.nvim_set_hl(0, "ReviewCommentSignResolved", { fg = "#6e738d", default = true })
+  -- Comentarios del agente (violeta) y con anclaje incierto (ámbar).
+  vim.api.nvim_set_hl(0, "ReviewCommentAgent", { bg = "#3a2c52", default = true })
+  vim.api.nvim_set_hl(0, "ReviewCommentStale", { bg = "#4a3a1d", default = true })
+  vim.api.nvim_set_hl(0, "ReviewCommentSignAgent", { fg = "#c6a0f6", bold = true, default = true })
+  vim.api.nvim_set_hl(0, "ReviewCommentBadgeAgent", { bg = "#3a2c52", fg = "#d8c4f5", default = true })
+  vim.api.nvim_set_hl(0, "ReviewCommentBadgeEdgeAgent", { bg = "#3a2c52", fg = "#c6a0f6", default = true })
   -- Paleta cíclica del corchete (un color por comentario).
   local palette = { "#8aadf4", "#a6da95", "#c6a0f6", "#f5a97f", "#8bd5ca", "#eed49f" }
   for i, hex in ipairs(palette) do

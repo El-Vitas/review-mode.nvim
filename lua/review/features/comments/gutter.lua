@@ -26,7 +26,10 @@ local function ranked_for(buf)
   local rel = core and core.git.rel_path(buf)
   local ranked, color = {}, {}
   if rel then
-    for _, c in ipairs(core.state.for_path(rel)) do ranked[#ranked + 1] = c end
+    -- Las respuestas (reply_to) no dibujan corchete propio: viven en el hilo.
+    for _, c in ipairs(core.state.for_path(rel)) do
+      if not c.reply_to then ranked[#ranked + 1] = c end
+    end
     table.sort(ranked, function(a, b) return (a.lnum or 0) < (b.lnum or 0) end)
     for i, c in ipairs(ranked) do color[c.id] = ((i - 1) % PALETTE_N) + 1 end
   end
@@ -69,7 +72,14 @@ function M.brackets(buf, lnum)
     else
       ch = "│"
     end
-    local hl = e.c.resolved and "ReviewCommentSignResolved" or ("ReviewCommentSign" .. entry.color[e.c.id])
+    local hl
+    if e.c.resolved then
+      hl = "ReviewCommentSignResolved"
+    elseif e.c.author and e.c.author ~= "user" then
+      hl = "ReviewCommentSignAgent"
+    else
+      hl = "ReviewCommentSign" .. entry.color[e.c.id]
+    end
     parts[#parts + 1] = "%#" .. hl .. "#" .. ch
   end
   return table.concat(parts) .. "%*"
