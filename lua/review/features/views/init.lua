@@ -123,6 +123,9 @@ function M.setup(core, opts)
 
   local commands = require("review.features.views.commands")
   commands.setup(core, opts, M)
+
+  -- Marcadores de cambios en el scrollbar (nvim-scrollbar), si está instalado.
+  require("review.features.views.scrollbar").setup(core)
 end
 
 require("review.core").registry.register({ name = "views", setup = M.setup })

@@ -2,12 +2,32 @@ local markdown = require("review.features.export.markdown")
 
 local M = {}
 
+-- Header agent-ready: si el agente está habilitado (existe `_G.ReviewAgent`),
+-- anteponemos al yank el socket RPC de esta instancia de Neovim + la API, para
+-- que el agente tenga TODO lo que necesita con solo pegar el markdown (sin pedir
+-- el socket a mano). Si el agente no está habilitado, no se agrega nada.
+local function agent_header()
+  if _G.ReviewAgent == nil then return "" end
+  local sock = vim.v.servername
+  if not sock or sock == "" then return "" end
+  return table.concat({
+    "<!-- review.nvim agent",
+    "socket: " .. sock,
+    "connect: nvim --server <socket> --remote-expr 'luaeval(\"ReviewAgent.<fn>(...)\")'",
+    "api: list(filter?) get(id) context(id) add(json) reply(id,text) resolve(id) unresolve(id) update(id,text) delete(id) clean_resolved(path?) is_modified(path) notify_changed(path)",
+    "each comment below carries its `id:<id>` token to target it.",
+    "-->",
+    "",
+    "",
+  }, "\n")
+end
+
 local function yank(text)
   if not text or text == "" then
     vim.notify("review.nvim: no comments", vim.log.levels.INFO)
     return
   end
-  vim.fn.setreg("+", text)
+  vim.fn.setreg("+", agent_header() .. text)
   vim.notify("review.nvim: comments copied to the + register", vim.log.levels.INFO)
 end
 

@@ -1,4 +1,4 @@
-# review.nvim — Documentación
+# review-mode — Documentación
 
 Code-review nativo dentro de Neovim: comentarios sobre líneas + vistas de diff
 (inline / split estilo VSCode) + export agent-ready + integración con neo-tree.

@@ -44,7 +44,10 @@ function M.markdown(list)
       lines[#lines + 1] = "## " .. cur_path
     end
     n = n + 1
-    lines[#lines + 1] = string.format("%d. %s %s", n, anchor(c), oneline(c.text))
+    -- Incluimos el id del comentario (token `id:<id>` al final) para que un
+    -- agente pueda apuntar a él (reply/resolve/etc.) sin adivinar.
+    local id = c.id and ("  `id:" .. c.id .. "`") or ""
+    lines[#lines + 1] = string.format("%d. %s %s%s", n, anchor(c), oneline(c.text), id)
   end
   return table.concat(lines, "\n")
 end

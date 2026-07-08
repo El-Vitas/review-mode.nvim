@@ -62,6 +62,22 @@ describe("comments.render", function()
     assert.are.equal(5, got.end_lnum)  -- 4 -> 5 (rango conservado, no colapsado)
   end)
 
+  it("relocate re-ubica el comentario por anchor_text si la línea cambió", function()
+    -- comentario anclado a "l3" pero guardado en lnum 3; simulamos que el archivo
+    -- cambió en disco mientras estaba cerrado: "l3" ahora está en la línea 5.
+    local c = state.add({ path = "foo.ts", lnum = 3, text = "x", anchor_text = "l3" })
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "n1", "n2", "l1", "l2", "l3" })
+    render.relocate(core, bufnr)
+    assert.are.equal(5, state.by_id(c.id).lnum)
+    assert.is_false(state.by_id(c.id).stale)
+  end)
+
+  it("relocate marca stale si el anchor_text ya no existe", function()
+    local c = state.add({ path = "foo.ts", lnum = 3, text = "x", anchor_text = "YA-NO-EXISTE" })
+    render.relocate(core, bufnr)
+    assert.is_true(state.by_id(c.id).stale)
+  end)
+
   it("reconcile marca stale cuando la línea anclada ya no coincide", function()
     local c = state.add({ path = "foo.ts", lnum = 2, text = "x", anchor_text = "l2" })
     render.render(core, bufnr)

@@ -76,11 +76,11 @@ describe("features.export.markdown", function()
       -- orden esperado: ## a.ts (2, luego 5), ## b.ts (9); numeración 1..3
       local expected = table.concat({
         "## a.ts",
-        "1. `a.ts:2` a dos",
-        "2. `a.ts:5` a cinco",
+        "1. `a.ts:2` a dos  `id:3`",
+        "2. `a.ts:5` a cinco  `id:2`",
         "",
         "## b.ts",
-        "3. `b.ts:9` b nueve",
+        "3. `b.ts:9` b nueve  `id:1`",
       }, "\n")
       assert.are.equal(expected, out)
     end)

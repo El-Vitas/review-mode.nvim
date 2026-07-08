@@ -39,7 +39,9 @@ local function ranked_for(buf)
 end
 
 --- String de statusline con los corchetes de la línea `lnum` del buffer `buf`.
-function M.brackets(buf, lnum)
+--- `cont`=true fuerza el trazo de continuación `│` (para líneas envueltas/wrap),
+--- para que el corchete quede CONTINUO y no repita `┌`/`└` en cada wrap.
+function M.brackets(buf, lnum, cont)
   if render.hidden then return "" end -- respetar el toggle ocultar/mostrar
   local entry = ranked_for(buf)
   if #entry.ranked == 0 then return "" end
@@ -63,7 +65,9 @@ function M.brackets(buf, lnum)
   local parts = {}
   for _, e in ipairs(cov) do
     local ch
-    if e.lo == e.hi then
+    if cont then
+      ch = "│" -- líneas envueltas: trazo continuo, sin esquinas
+    elseif e.lo == e.hi then
       ch = "▌"
     elseif lnum == e.lo then
       ch = "┌"
@@ -91,14 +95,27 @@ function M.render()
   local ok, buf = pcall(vim.api.nvim_win_get_buf, win)
   if not ok then return "" end
 
-  local brackets = M.brackets(buf, vim.v.lnum)
+  -- v:virtnum: 0 = línea real; >0 = parte envuelta (wrap); <0 = línea virtual
+  -- (nuestro badge/peek). En líneas virtuales NO dibujamos corchete (evita los
+  -- fragmentos `┌`/`│` rotos sobre el badge/peek); en wraps, trazo continuo.
+  local virt = vim.v.virtnum
+  local brackets
+  if virt < 0 then
+    brackets = ""
+  elseif virt > 0 then
+    brackets = M.brackets(buf, vim.v.lnum, true)
+  else
+    brackets = M.brackets(buf, vim.v.lnum)
+  end
 
   local numcol = ""
-  local wo = vim.wo[win]
-  if wo.number or wo.relativenumber then
-    local n = vim.v.lnum
-    if wo.relativenumber and vim.v.relnum ~= 0 then n = vim.v.relnum end
-    numcol = tostring(n)
+  if virt == 0 then
+    local wo = vim.wo[win]
+    if wo.number or wo.relativenumber then
+      local n = vim.v.lnum
+      if wo.relativenumber and vim.v.relnum ~= 0 then n = vim.v.relnum end
+      numcol = tostring(n)
+    end
   end
 
   return "%C%s" .. brackets .. " %=" .. numcol .. " "

@@ -44,10 +44,18 @@ function M.add(c)
 end
 
 function M.remove(id)
-  for i, c in ipairs(list) do
-    if c.id == id then table.remove(list, i); events.emit("comments:changed", {}); return true end
+  -- Borra el comentario y, EN CASCADA, sus respuestas (reply_to == id), para no
+  -- dejar respuestas huérfanas apuntando a un padre inexistente.
+  local removed = false
+  for i = #list, 1, -1 do
+    local c = list[i]
+    if c.id == id or c.reply_to == id then
+      table.remove(list, i)
+      removed = true
+    end
   end
-  return false
+  if removed then events.emit("comments:changed", {}) end
+  return removed
 end
 
 function M.update(id, fields)

@@ -69,6 +69,16 @@ describe("core.state threading + campos nuevos", function()
     assert.are.same({}, state.thread("no-existe"))
   end)
 
+  it("remove borra en cascada las respuestas del comentario", function()
+    local p = state.add({ path = "a.ts", lnum = 1, text = "padre" })
+    state.add({ path = "a.ts", lnum = 1, text = "r1", reply_to = p.id })
+    state.add({ path = "a.ts", lnum = 1, text = "r2", reply_to = p.id })
+    state.add({ path = "a.ts", lnum = 2, text = "otro" })
+    assert.is_true(state.remove(p.id))
+    assert.are.equal(1, #state.all())        -- solo queda "otro"
+    assert.are.equal(0, #state.replies(p.id)) -- respuestas borradas
+  end)
+
   it("reply_to/anchor_text/stale sobreviven persist + load", function()
     local p = state.add({ path = "a.ts", lnum = 3, text = "x", anchor_text = "const foo = 1" })
     state.add({ path = "a.ts", lnum = 3, text = "y", reply_to = p.id, author = "agent" })

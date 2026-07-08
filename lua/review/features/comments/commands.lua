@@ -180,8 +180,6 @@ function M.setup(core, opts)
     vim.notify("review.nvim: comments " .. (render.hidden and "hidden" or "visible"), vim.log.levels.INFO)
   end
   local function peek() mode.peek_here(core) end
-  local function peek_all() mode.peek_all(core) end
-  local function peek_close() mode.close_all_peeks() end
 
   -- Comandos largos + alias cortos (todos comandos REALES; las minúsculas las
   -- resuelve plugin/review.lua vía cnoreabbrev).
@@ -193,12 +191,8 @@ function M.setup(core, opts)
   vim.api.nvim_create_user_command("Rlf", list_file, {})
   vim.api.nvim_create_user_command("ReviewToggle", toggle_hidden, {}) -- ocultar/mostrar
   vim.api.nvim_create_user_command("Rt", toggle_hidden, {})
-  vim.api.nvim_create_user_command("ReviewPeek", peek, {})           -- ver comentario (flotante)
+  vim.api.nvim_create_user_command("ReviewPeek", peek, {})           -- ver comentario (tarjeta flotante)
   vim.api.nvim_create_user_command("Rp", peek, {})
-  vim.api.nvim_create_user_command("ReviewPeekAll", peek_all, {})    -- abrir un peek por comentario
-  vim.api.nvim_create_user_command("Rpa", peek_all, {})
-  vim.api.nvim_create_user_command("ReviewPeekClose", peek_close, {}) -- cerrar todos los flotantes
-  vim.api.nvim_create_user_command("Rpc", peek_close, {})
 
   vim.keymap.set("n", leader .. "r", function() mode.edit_here(core) end, { desc = "Review: edit comment on line" })
   vim.keymap.set("n", leader .. "c", function() mode.add_here(core, {}) end, { desc = "Review: comment line" })
@@ -209,8 +203,6 @@ function M.setup(core, opts)
   vim.keymap.set("n", leader .. "L", list_file, { desc = "Review: list comments (file)" })
   vim.keymap.set("n", leader .. "h", toggle_hidden, { desc = "Review: hide/show comments" })
   vim.keymap.set("n", leader .. "p", peek, { desc = "Review: peek comment" })
-  vim.keymap.set("n", leader .. "P", peek_close, { desc = "Review: close all peeks" })
-  vim.keymap.set("n", leader .. "o", peek_all, { desc = "Review: peek all comments" })
 end
 
 return M

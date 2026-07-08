@@ -213,93 +213,207 @@ local function best_at(core, rel, lnum)
   return best
 end
 
--- El peek se renderiza como VIRTUAL LINES insertadas debajo del bloque (estilo
--- GitHub inline): es parte del flujo del código, ocupa espacio, se mueve con el
--- scroll y NO sigue al cursor (no es un flotante). Clave por id de comentario.
+-- Namespace de los extmarks de highlight DENTRO de la tarjeta flotante del peek.
 local peek_ns = vim.api.nvim_create_namespace("review_peek")
-M._peek_marks = {} -- id -> { bufnr, extmark_id }
 
---- Libera los peek marks de un buffer que se cerró/eliminó (evita que la tabla
---- crezca con entradas de buffers muertos).
-function M.cleanup_buffer(bufnr)
-  for id, info in pairs(M._peek_marks) do
-    if info.bufnr == bufnr then M._peek_marks[id] = nil end
-  end
+--- Compat: al cerrar/eliminar un buffer, cerrar la tarjeta del peek si estaba
+--- abierta (no dejar el float colgado).
+function M.cleanup_buffer(_)
+  if M.close_peek_float then M.close_peek_float() end
 end
 
---- Cierra (quita) TODOS los peeks inline.
-function M.close_all_peeks()
-  for _, info in pairs(M._peek_marks) do
-    if info.bufnr and vim.api.nvim_buf_is_valid(info.bufnr) then
-      pcall(vim.api.nvim_buf_del_extmark, info.bufnr, peek_ns, info.id)
+-- Envuelve `text` por palabras a un ancho `w` (respeta saltos de línea propios).
+local function wrap_text(text, w)
+  local out = {}
+  for _, para in ipairs(vim.split(text or "", "\n", { plain = true })) do
+    if para == "" then
+      out[#out + 1] = ""
+    else
+      local line = ""
+      for word in para:gmatch("%S+") do
+        if line == "" then
+          line = word
+        elseif vim.fn.strdisplaywidth(line .. " " .. word) <= w then
+          line = line .. " " .. word
+        else
+          out[#out + 1] = line
+          line = word
+        end
+      end
+      out[#out + 1] = line
     end
   end
-  M._peek_marks = {}
+  if #out == 0 then out = { "" } end
+  return out
 end
 
-local function pad(s, w)
-  local dw = vim.fn.strdisplaywidth(s)
-  if dw < w then return s .. string.rep(" ", w - dw) end
-  return s
+-- ── Peek FLOTANTE estilo tarjeta GitHub, DOS paneles apilados ───────────────
+-- Panel de arriba = lo que dijiste vos (author=user); panel de abajo = lo que
+-- indicó claude (author≠user). Cada panel scrollea INDEPENDIENTE y muestra un
+-- scrollbar SOLO si su contenido desborda. Anclado a la línea del comentario
+-- (no persigue el cursor). Footer con acciones. Cierra con q/Esc o al salir.
+M._peek_wins = {}
+M._peek_id = nil
+
+function M.close_peek_float()
+  for _, w in ipairs(M._peek_wins) do
+    if w and vim.api.nvim_win_is_valid(w) then pcall(vim.api.nvim_win_close, w, true) end
+  end
+  M._peek_wins = {}
+  M._peek_id = nil
 end
 
--- Construye las virtual lines (una tabla de chunks por línea) del peek de `c`.
--- `replies` (opcional) es la lista de respuestas del hilo, que se muestran
--- sangradas debajo del comentario padre.
-local function build_virt_lines(c, replies)
+-- "2026-07-07T23:04:33Z" -> "2026-07-07 23:04"
+local function short_time(iso)
+  if type(iso) ~= "string" then return "" end
+  local d, t = iso:match("^(%d%d%d%d%-%d%d%-%d%d)T(%d%d:%d%d)")
+  if d then return d .. " " .. t end
+  return iso
+end
+
+local PEEK_FW = 72      -- ancho de los paneles
+local PEEK_PANE_MAX = 9 -- alto máximo por panel antes de scrollear
+
+-- Líneas (+ highlight por línea) de un panel a partir de una lista de mensajes.
+local function pane_content(msgs, empty_txt)
+  local ls, sp = {}, {}
+  local function add(t, h) ls[#ls + 1] = t; sp[#sp + 1] = h end
+  for i, m in ipairs(msgs) do
+    local is_agent = m.author and m.author ~= "user"
+    add(" " .. (is_agent and "🤖 " or "● ") .. (m.author or "user") .. "  ·  " .. short_time(m.created_at),
+      is_agent and "ReviewPeekWhoAgent" or "ReviewPeekWho")
+    for _, tl in ipairs(wrap_text(m.text, PEEK_FW - 5)) do
+      add("   " .. tl, "ReviewPeekNormal")
+    end
+    if i < #msgs then add("", nil) end
+  end
+  if #ls == 0 then add(" " .. (empty_txt or "(empty)"), "ReviewPeekFoot") end
+  return ls, sp
+end
+
+-- Dibuja el "thumb" del scrollbar de `pane_win` en `sb_buf` (h filas).
+local function draw_scrollbar(sb_buf, pane_win, total, h)
+  if not vim.api.nvim_win_is_valid(pane_win) or not vim.api.nvim_buf_is_valid(sb_buf) then return end
+  local info = vim.fn.getwininfo(pane_win)[1]
+  local top = (info and info.topline or 1) - 1
+  local size = math.min(h, math.max(1, math.floor(h * h / total + 0.5)))
+  local denom = math.max(1, total - h)
+  local pos = math.max(0, math.min(h - size, math.floor((h - size) * (top / denom) + 0.5)))
+  local rows = {}
+  for i = 1, h do rows[i] = (i - 1 >= pos and i - 1 < pos + size) and "█" or "│" end
+  vim.bo[sb_buf].modifiable = true
+  vim.api.nvim_buf_set_lines(sb_buf, 0, -1, false, rows)
+  vim.bo[sb_buf].modifiable = false
+end
+
+local function open_peek_float(core, origin_buf, c)
+  M.close_peek_float()
+  local thread = core.state.thread(c.id)
+
+  -- Separar: lo mío (user) vs lo de claude (agent/otros).
+  local mine, theirs = {}, {}
+  for _, m in ipairs(thread) do
+    if m.author and m.author ~= "user" then theirs[#theirs + 1] = m else mine[#mine + 1] = m end
+  end
+
   local range = (c.end_lnum and c.end_lnum ~= c.lnum)
-      and string.format("L%d–%d", c.lnum, c.end_lnum)
-      or ("L" .. c.lnum)
-  local status = c.resolved and "resolved" or "open"
-  local is_agent = c.author and c.author ~= "user"
-  local icon = c.resolved and "✓" or (is_agent and "🤖" or "💬")
-  if c.stale then icon = "⚠ " .. icon end
-  local header = string.format(" %s  %s   ·   %s   ·   %s ", icon, status, range, c.author or "user")
+      and ("L" .. c.lnum .. "–" .. c.end_lnum) or ("L" .. c.lnum)
 
-  local body = {}
-  for _, tl in ipairs(vim.split(c.text or "", "\n", { plain = true })) do
-    body[#body + 1] = " " .. tl .. " "
+  -- UNA sola tarjeta: sección "user" + divisor + sección "claude". Robusto
+  -- (un solo flotante bien posicionado, sin apilar ventanas frágiles).
+  local ls, sp = {}, {}
+  local function add(t, h) ls[#ls + 1] = t; sp[#sp + 1] = h end
+  local uls, usp = pane_content(mine, "(no user comment)")
+  for i = 1, #uls do add(uls[i], usp[i]) end
+  add(string.rep("─", PEEK_FW - 1), "ReviewPeekSep")
+  local tls, tsp = pane_content(theirs, "(no reply from claude yet)")
+  for i = 1, #tls do add(tls[i], tsp[i]) end
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, ls)
+  for i, hl in ipairs(sp) do
+    if hl then
+      pcall(vim.api.nvim_buf_set_extmark, buf, peek_ns, i - 1, 0,
+        { end_row = i - 1, end_col = #ls[i], hl_group = hl })
+    end
   end
-  if #body == 0 then body = { " (no text) " } end
+  vim.bo[buf].modifiable = false
+  vim.bo[buf].bufhidden = "wipe"
 
-  -- Respuestas del hilo, sangradas y con su autor.
-  for _, r in ipairs(replies or {}) do
-    local rauthor = r.author or "agent"
-    local ricon = (rauthor ~= "user") and "🤖" or "💬"
-    local rlines = vim.split(r.text or "", "\n", { plain = true })
-    body[#body + 1] = string.format("   ↳ %s %s: %s ", ricon, rauthor, rlines[1] or "")
-    for i = 2, #rlines do body[#body + 1] = "        " .. rlines[i] .. " " end
-  end
-
-  local w = vim.fn.strdisplaywidth(header)
-  for _, l in ipairs(body) do w = math.max(w, vim.fn.strdisplaywidth(l)) end
-  w = math.min(math.max(w, 40), 100)
-
-  local bar = { "▌", "ReviewPeekBorder" } -- barra izquierda = borde del box
-  local vlines = {}
-  vlines[#vlines + 1] = { { "   ", "None" }, bar, { pad(header, w), "ReviewPeekHeader" } }
-  vlines[#vlines + 1] = { { "   ", "None" }, bar, { pad(" " .. string.rep("─", w - 1), w), "ReviewPeekSep" } }
-  for _, l in ipairs(body) do
-    vlines[#vlines + 1] = { { "   ", "None" }, bar, { pad(l, w), "ReviewPeekNormal" } }
-  end
-  return vlines
-end
-
--- Inserta el peek de `c` debajo de su última línea, en `bufnr`.
-local function open_peek_inline(core, bufnr, c)
-  local last = math.max(c.lnum, c.end_lnum or c.lnum)
-  local anchor = clamp(bufnr, last) - 1
-  local replies = core.state.replies and core.state.replies(c.id) or {}
-  local id = vim.api.nvim_buf_set_extmark(bufnr, peek_ns, anchor, 0, {
-    virt_lines = build_virt_lines(c, replies),
-    virt_lines_above = false,
+  local total = #ls
+  local height = math.min(total, 16)
+  -- CENTRADO en la pantalla (como el popup de escribir comentario).
+  local row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1)
+  local col = math.max(0, math.floor((vim.o.columns - PEEK_FW) / 2))
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    row = row,
+    col = col,
+    width = PEEK_FW,
+    height = height,
+    style = "minimal",
+    border = "rounded",
+    title = " 💬 " .. c.path .. "  ·  " .. range .. "  ·  " .. (c.resolved and "resolved" or "open") .. " ",
+    title_pos = "left",
+    footer = " x resolve · d delete · e edit · q close ",
+    footer_pos = "right",
   })
-  M._peek_marks[c.id] = { bufnr = bufnr, id = id }
+  vim.wo[win].winhighlight =
+    "NormalFloat:ReviewPeekNormal,FloatBorder:ReviewPeekBorder,FloatTitle:ReviewPeekHeader,FloatFooter:ReviewPeekFoot"
+  vim.wo[win].wrap = false
+  vim.wo[win].cursorline = true
+  M._peek_wins = { win }
+  M._peek_id = c.id
+
+  -- Scrollbar SOLO si el contenido total desborda el alto del float.
+  if total > height then
+    local sbb = vim.api.nvim_create_buf(false, true)
+    vim.bo[sbb].bufhidden = "wipe"
+    local sbw = vim.api.nvim_open_win(sbb, false, {
+      relative = "win", win = win, anchor = "NW", row = 0, col = PEEK_FW - 1,
+      width = 1, height = height, style = "minimal", focusable = false, zindex = 250,
+    })
+    vim.wo[sbw].winhighlight = "NormalFloat:ReviewPeekSep"
+    M._peek_wins[#M._peek_wins + 1] = sbw
+    draw_scrollbar(sbb, win, total, height)
+    vim.api.nvim_create_autocmd({ "WinScrolled", "CursorMoved" }, {
+      buffer = buf,
+      callback = function() draw_scrollbar(sbb, win, total, height) end,
+    })
+  end
+
+  local function close() M.close_peek_float() end
+  local function rerender()
+    if vim.api.nvim_buf_is_valid(origin_buf) then
+      pcall(require("review.features.comments.render").render, core, origin_buf)
+    end
+  end
+  local km = { buffer = buf, nowait = true, silent = true }
+  vim.keymap.set("n", "q", close, km)
+  vim.keymap.set("n", "<Esc>", close, km)
+  vim.keymap.set("n", "x", function()
+    core.state.update(c.id, { resolved = not c.resolved }); core.state.persist(); close(); rerender()
+  end, km)
+  vim.keymap.set("n", "d", function()
+    core.state.remove(c.id); core.state.persist(); close(); rerender()
+  end, km)
+  vim.keymap.set("n", "e", function()
+    close()
+    open_popup({ title = " Edit comment ", initial = c.text or "", start_insert = false,
+      on_save = function(text) M._update_at(core, origin_buf, c.lnum, text) end })
+  end, km)
+
+  -- Cerrar al salir de la ventana del float.
+  vim.api.nvim_create_autocmd("WinLeave", {
+    buffer = buf,
+    once = true,
+    callback = function() vim.schedule(close) end,
+  })
 end
 
---- TOGGLE del peek del comentario bajo el cursor. El detalle se inserta como
---- líneas reales debajo del bloque (parte del código): ocupa espacio, se mueve
---- con el scroll y NO se mueve solo ni sigue al cursor.
+--- TOGGLE del peek del comentario bajo el cursor. Abre UNA tarjeta FLOTANTE
+--- centrada con el hilo. Solo puede haber un peek abierto: abrir otro cierra el
+--- anterior (open_peek_float ya cierra el previo al inicio).
 function M.peek_here(core)
   local bufnr = vim.api.nvim_get_current_buf()
   local rel = core.git.rel_path(bufnr)
@@ -309,30 +423,12 @@ function M.peek_here(core)
     vim.notify("review.nvim: no comment on this line", vim.log.levels.INFO)
     return
   end
-  local info = M._peek_marks[c.id]
-  if info then -- toggle off
-    if info.bufnr and vim.api.nvim_buf_is_valid(info.bufnr) then
-      pcall(vim.api.nvim_buf_del_extmark, info.bufnr, peek_ns, info.id)
-    end
-    M._peek_marks[c.id] = nil
+  -- toggle: si ya está abierto para este comentario, cerrar.
+  if M._peek_id == c.id and #M._peek_wins > 0 then
+    M.close_peek_float()
     return
   end
-  open_peek_inline(core, bufnr, c)
-end
-
---- Abre el peek inline de CADA comentario del archivo actual ("abrir todos").
-function M.peek_all(core)
-  local bufnr = vim.api.nvim_get_current_buf()
-  local rel = core.git.rel_path(bufnr)
-  if not rel then return end
-  local list = core.state.for_path(rel)
-  if #list == 0 then
-    vim.notify("review.nvim: no comments in this file", vim.log.levels.INFO)
-    return
-  end
-  for _, c in ipairs(list) do
-    if not c.reply_to and not M._peek_marks[c.id] then open_peek_inline(core, bufnr, c) end
-  end
+  open_peek_float(core, bufnr, c)
 end
 
 function M.delete_here(core)

@@ -39,6 +39,10 @@ local function ensure_hl()
   vim.api.nvim_set_hl(0, "ReviewPeekTitle", { bg = "#1e2030", fg = "#8aadf4", bold = true, default = true })
   vim.api.nvim_set_hl(0, "ReviewPeekHeader", { bg = "#2c3a52", fg = "#8aadf4", bold = true, default = true })
   vim.api.nvim_set_hl(0, "ReviewPeekSep", { bg = "#1e2030", fg = "#5b6078", default = true })
+  -- Tarjeta del peek flotante: cabecera de cada mensaje del hilo + footer.
+  vim.api.nvim_set_hl(0, "ReviewPeekWho", { bg = "#1e2030", fg = "#8aadf4", bold = true, default = true })
+  vim.api.nvim_set_hl(0, "ReviewPeekWhoAgent", { bg = "#1e2030", fg = "#c6a0f6", bold = true, default = true })
+  vim.api.nvim_set_hl(0, "ReviewPeekFoot", { bg = "#1e2030", fg = "#6e738d", default = true })
 end
 
 function M.setup(core, opts)
@@ -50,7 +54,18 @@ function M.setup(core, opts)
   -- `:colorscheme` limpia los highlights; re-definirlos al cambiar de tema.
   vim.api.nvim_create_autocmd("ColorScheme", { group = group, callback = ensure_hl })
 
-  vim.api.nvim_create_autocmd({ "BufReadPost", "BufEnter" }, {
+  -- Al ABRIR el archivo (recién leído del disco): re-localizar por contenido
+  -- (`anchor_text`) por si el archivo cambió mientras el buffer estaba cerrado
+  -- (p. ej. el agente lo editó), y persistir la corrección. Luego renderizar.
+  vim.api.nvim_create_autocmd("BufReadPost", {
+    group = group,
+    callback = function(args)
+      render.relocate(core, args.buf)
+      core.state.persist()
+      render.render(core, args.buf)
+    end,
+  })
+  vim.api.nvim_create_autocmd("BufEnter", {
     group = group,
     callback = function(args)
       render.render(core, args.buf)

@@ -39,7 +39,7 @@ function M.render(core, bufnr)
     -- completo se lee en el peek flotante (<leader>rp), no arrastrando una tira
     -- larga al final de la línea.
     text = text:gsub("[\r\n]+", " ")
-    if #text > 46 then text = text:sub(1, 44) .. "…" end
+    if #text > 100 then text = text:sub(1, 98) .. "…" end
 
     local resolved = c.resolved
     local is_agent = c.author and c.author ~= "user"
@@ -78,16 +78,21 @@ function M.render(core, bufnr)
     -- Es el que usa sync_positions; para 1 línea, el único.
     -- (Los corchetes anidados de la izquierda los dibuja el statuscolumn — ver
     -- gutter.lua — porque la columna de signos solo admite 1 signo por línea.)
+    -- El badge va como LÍNEA VIRTUAL propia ARRIBA del bloque (no como virt_text
+    -- pegado al eol): así es un "header" que no se puede editar, el cursor lo
+    -- saltea (es virtual, no es línea real) y queda bien asociado al código de
+    -- abajo. Permite mostrar más caracteres que el chip anterior.
     local id = vim.api.nvim_buf_set_extmark(bufnr, core.ns.comments, row, 0, {
       end_row = end_lnum - 1,
       line_hl_group = line_hl,
-      virt_text = {
-        { "  ", "None" },
-        { "▏", edge_hl },
-        { " " .. icon .. " " .. text .. suffix .. " ", badge_hl },
-        { "▕", edge_hl },
+      virt_lines = {
+        {
+          { "▏ ", edge_hl },
+          { icon .. " " .. text .. suffix .. " ", badge_hl },
+          { "▕", edge_hl },
+        },
       },
-      virt_text_pos = "eol",
+      virt_lines_above = true,
     })
     c._extmark_id = id
 
@@ -120,6 +125,43 @@ function M.sync_positions(core, bufnr)
         if new_lnum ~= c.lnum or new_end ~= c.end_lnum then
           core.state.update(c.id, { lnum = new_lnum, end_lnum = new_end })
         end
+      end
+    end
+  end
+end
+
+--- Re-localiza los comentarios por CONTENIDO (`anchor_text`) — pensada para
+--- correr al ABRIR un archivo que pudo cambiar en disco mientras estaba cerrado
+--- (ahí no hubo extmarks que sigan el movimiento). Para cada comentario con
+--- `anchor_text`: si la línea guardada ya no coincide, busca la ocurrencia más
+--- cercana de ese texto en el buffer y reubica (arrastra `end_lnum` el mismo
+--- delta); si no la encuentra, lo marca `stale`. No-op fuera del repo.
+function M.relocate(core, bufnr)
+  local rel = core.git.rel_path(bufnr)
+  if not rel then return end
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local total = #lines
+  for _, c in ipairs(core.state.for_path(rel)) do
+    if c.anchor_text and c.anchor_text ~= "" then
+      local target = vim.trim(c.anchor_text)
+      local cur = c.lnum and lines[c.lnum] and vim.trim(lines[c.lnum]) or nil
+      if cur ~= target then
+        local best, bestdist
+        for i = 1, total do
+          if vim.trim(lines[i] or "") == target then
+            local d = math.abs(i - (c.lnum or 1))
+            if not best or d < bestdist then best, bestdist = i, d end
+          end
+        end
+        if best then
+          local delta = best - (c.lnum or best)
+          local new_end = math.max(1, math.min(total, (c.end_lnum or c.lnum or best) + delta))
+          core.state.update(c.id, { lnum = best, end_lnum = new_end, stale = false })
+        elseif not c.stale then
+          core.state.update(c.id, { stale = true })
+        end
+      elseif c.stale then
+        core.state.update(c.id, { stale = false })
       end
     end
   end
