@@ -34,12 +34,9 @@ describe("comments.commands", function()
     assert.are.equal(3, qf[1].lnum)
   end)
 
-  it("mapea <leader>rr en modo normal", function()
+  it("mapea <leader>re (edit) en modo normal", function()
     commands.setup(core, { leader = "<leader>r" })
-    -- `maparg` resuelve `<leader>` contra `g:mapleader` igual que al setear el
-    -- mapeo; comparar contra `nvim_get_keymap` a mano es frágil porque el
-    -- lhs ahí queda ya expandido (depende del mapleader del entorno).
-    assert.is_true(vim.fn.maparg("<leader>rr", "n") ~= "")
+    assert.is_true(vim.fn.maparg("<leader>re", "n") ~= "")
   end)
 
   it("_filter selecciona por modo (mine/agent/answered/unanswered)", function()

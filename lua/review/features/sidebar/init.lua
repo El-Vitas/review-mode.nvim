@@ -106,7 +106,9 @@ function M.setup(core, opts)
     open_sidebar(M._mode)
     vim.notify("review.nvim: sidebar " .. (M._mode == "all" and "all files" or "changed files"), vim.log.levels.INFO)
   end
-  local keymap_lhs = (opts.leader or "<leader>r") .. "s"
+  -- Sidebar de review en <leader>s (top-level): <leader>rs quedó para "split".
+  -- Override-able con opts.sidebar_key.
+  local keymap_lhs = opts.sidebar_key or "<leader>s"
   vim.keymap.set("n", keymap_lhs, toggle, { desc = "Review: sidebar toggle changed/all" })
 
   if not M._subscribed then

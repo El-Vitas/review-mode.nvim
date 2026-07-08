@@ -82,9 +82,13 @@ function M.render(core, bufnr)
     -- pegado al eol): así es un "header" que no se puede editar, el cursor lo
     -- saltea (es virtual, no es línea real) y queda bien asociado al código de
     -- abajo. Permite mostrar más caracteres que el chip anterior.
+    -- priority BAJA para el fondo de línea: así la `cursorline` (línea actual)
+    -- gana sobre el fondo del comentario y NO te perdés dentro de un comentario.
+    -- (El default de line_hl_group es 4096, que tapa la cursorline.)
     local id = vim.api.nvim_buf_set_extmark(bufnr, core.ns.comments, row, 0, {
       end_row = end_lnum - 1,
       line_hl_group = line_hl,
+      priority = 100,
       virt_lines = {
         {
           { "▏ ", edge_hl },
@@ -100,6 +104,7 @@ function M.render(core, bufnr)
     for r = row + 1, end_lnum - 1 do
       vim.api.nvim_buf_set_extmark(bufnr, core.ns.comments, r, 0, {
         line_hl_group = line_hl,
+        priority = 100,
       })
     end
   end

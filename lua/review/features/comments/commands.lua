@@ -194,7 +194,7 @@ function M.setup(core, opts)
   vim.api.nvim_create_user_command("ReviewPeek", peek, {})           -- ver comentario (tarjeta flotante)
   vim.api.nvim_create_user_command("Rp", peek, {})
 
-  vim.keymap.set("n", leader .. "r", function() mode.edit_here(core) end, { desc = "Review: edit comment on line" })
+  vim.keymap.set("n", leader .. "e", function() mode.edit_here(core) end, { desc = "Review: edit comment on line" })
   vim.keymap.set("n", leader .. "c", function() mode.add_here(core, {}) end, { desc = "Review: comment line" })
   vim.keymap.set("v", leader .. "c", function() mode.add_here(core, {}) end, { desc = "Review: comment range" })
   vim.keymap.set("n", leader .. "d", function() mode.delete_here(core) end, { desc = "Review: delete comment" })

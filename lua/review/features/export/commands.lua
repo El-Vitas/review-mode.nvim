@@ -53,8 +53,9 @@ function M.setup(core, opts)
   vim.api.nvim_create_user_command("Ryf", function() yank_file(core) end, {})
   vim.api.nvim_create_user_command("Rya", function() yank_all(core) end, {})
 
-  vim.keymap.set("n", leader .. "f", function() yank_file(core) end, { desc = "Review: yank comments of current file" })
-  vim.keymap.set("n", leader .. "a", function() yank_all(core) end, { desc = "Review: yank all comments" })
+  -- Yank/export agrupado bajo <leader>ry: yf = file, ya = all.
+  vim.keymap.set("n", leader .. "yf", function() yank_file(core) end, { desc = "Review: yank comments (file)" })
+  vim.keymap.set("n", leader .. "ya", function() yank_all(core) end, { desc = "Review: yank comments (all)" })
 end
 
 return M

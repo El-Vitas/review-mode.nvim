@@ -78,8 +78,8 @@ describe("features.export.commands", function()
     -- Neovim expande "<leader>" al valor de g:mapleader (default "\\") al registrar
     -- el mapeo, así que nvim_get_keymap devuelve el lhs ya expandido, no el literal.
     local mapleader = vim.g.mapleader or "\\"
-    local expected_f = mapleader .. "zf"
-    local expected_a = mapleader .. "za"
+    local expected_f = mapleader .. "zyf"
+    local expected_a = mapleader .. "zya"
     local found = {}
     for _, m in ipairs(vim.api.nvim_get_keymap("n")) do
       if m.lhs == expected_f then found.f = true end

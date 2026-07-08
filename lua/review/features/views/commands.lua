@@ -43,7 +43,12 @@ function M.setup(core, opts, views_mod)
   -- Ciclar el modo global.
   vim.keymap.set("n", leader .. "v", function()
     views_mod.set(core, next_mode(views_mod.mode))
-  end, { desc = "review.nvim: cycle view normal/inline/split" })
+  end, { desc = "review: cycle view" })
+
+  -- Vistas directas: <leader>rn normal · <leader>ri inline · <leader>rs split.
+  vim.keymap.set("n", leader .. "n", function() views_mod.set(core, "normal") end, { desc = "review: normal view" })
+  vim.keymap.set("n", leader .. "i", function() views_mod.set(core, "inline") end, { desc = "review: inline view" })
+  vim.keymap.set("n", leader .. "s", function() views_mod.set(core, "split") end, { desc = "review: split view" })
 
   -- ── Navegación de CAMBIOS (vs HEAD) ──────────────────────────────────────
   -- Para ubicar y saltar rápido a los cambios (además de las marcas del
@@ -96,6 +101,15 @@ function M.setup(core, opts, views_mod)
     end
     vim.fn.setqflist({}, " ", { title = "review.nvim: changes", items = items })
     vim.cmd("copen")
+    -- Mismo comportamiento que la lista de comentarios: q cierra, Enter salta y cierra.
+    local qbuf = vim.api.nvim_get_current_buf()
+    vim.wo.winbar = "%#Title# review.nvim %* changes · ‹Enter› go · ‹q› close"
+    vim.keymap.set("n", "q", "<cmd>cclose<CR>", { buffer = qbuf, nowait = true, desc = "close" })
+    vim.keymap.set("n", "<CR>", function()
+      local idx = vim.fn.line(".")
+      vim.cmd("cclose")
+      pcall(vim.cmd, idx .. "cc")
+    end, { buffer = qbuf, nowait = true, desc = "go to change and close" })
   end
   vim.api.nvim_create_user_command("ReviewChanges", list_changes, {})
   vim.api.nvim_create_user_command("Rch", list_changes, {})
