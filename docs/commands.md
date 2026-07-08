@@ -48,8 +48,14 @@ y `docs/plans/05-agent.md`), no por comandos de usuario.
 
 El modo es global: se aplica a todos los archivos y sigue al archivo activo.
 
-**Cambios (vs HEAD):** `<leader>rg` lista los rangos (quickfix; `Enter` salta y
+**Cambios (vs la base):** `<leader>rg` lista los rangos (quickfix; `Enter` salta y
 cierra, `q` cierra) · `]r` / `[r` saltan al siguiente/anterior cambio.
+
+**Base de comparación:** `:ReviewBase` / `:Rb` / `<leader>rb` abre un modal
+centrado para elegir contra qué se compara todo review (inline, split, cambios):
+`HEAD`, `index` (staged), o un commit reciente (hash + nombre). `Enter` selecciona,
+`q`/`Esc` cancela. Al elegir, también sincroniza los signos de gitsigns
+(`change_base`). Default: `HEAD`.
 
 ## Sidebar
 

@@ -121,6 +121,13 @@ function M.setup(core, opts)
     end,
   })
 
+  -- Al cambiar la BASE de comparación (:ReviewBase), invalidar el cache del HEAD
+  -- y re-renderizar la vista actual con la nueva base.
+  core.events.on("base:changed", function()
+    inline.invalidate()
+    vim.schedule(function() apply_current(core) end)
+  end)
+
   local commands = require("review.features.views.commands")
   commands.setup(core, opts, M)
 

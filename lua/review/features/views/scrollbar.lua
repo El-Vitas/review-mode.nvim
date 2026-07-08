@@ -104,6 +104,15 @@ function M.setup(core)
     group = grp,
     callback = function(a) _head[a.buf] = nil end,
   })
+
+  -- Al cambiar la base de comparación: limpiar caches y redibujar las marcas.
+  if core.events then
+    core.events.on("base:changed", function()
+      _head = {}
+      _hunks = {}
+      vim.schedule(function() pcall(require("scrollbar.handlers").show) end)
+    end)
+  end
 end
 
 return M

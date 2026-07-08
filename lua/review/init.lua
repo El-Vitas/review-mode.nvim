@@ -2,7 +2,7 @@ local M = {}
 M.config = { leader = "<leader>r" }
 
 -- Features conocidas. Cada una se auto-registra en core.registry al requerirse.
-local FEATURES = { "comments", "export", "views", "sidebar", "agent" }
+local FEATURES = { "comments", "export", "views", "sidebar", "agent", "base" }
 
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})

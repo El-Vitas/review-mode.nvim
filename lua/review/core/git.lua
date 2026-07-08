@@ -2,6 +2,22 @@ local store = require("review.core.store")
 
 local M = {}
 
+-- Base de comparación de review (contra qué se comparan las vistas / cambios).
+-- "HEAD" (default), un hash/branch, o ":" para el index (staged). Se cambia con
+-- :ReviewBase (ver features/base). head_content y changed_files la respetan.
+M.base_ref = "HEAD"
+
+function M.set_base(ref)
+  M.base_ref = (ref == nil or ref == "") and "HEAD" or ref
+end
+
+-- Spec de `git show` para el archivo en la base actual: `<ref>:relpath`, o para
+-- el index `:relpath`.
+local function show_spec(relpath)
+  if M.base_ref == ":" then return ":" .. relpath end
+  return M.base_ref .. ":" .. relpath
+end
+
 -- Cache de la raíz del repo por directorio. `git rev-parse` es un subproceso y
 -- root()/rel_path() se llaman muy seguido (render en BufEnter, sync de vistas,
 -- etc.). La raíz de un directorio es estable, así que la cacheamos: string =
@@ -62,7 +78,7 @@ end
 function M.head_content(relpath, root)
   root = root or M.root()
   if not root then return nil end
-  local out = vim.fn.systemlist({ "git", "-C", root, "show", "HEAD:" .. relpath })
+  local out = vim.fn.systemlist({ "git", "-C", root, "show", show_spec(relpath) })
   if vim.v.shell_error ~= 0 then return nil end
   -- Normalizar CRLF: `git show` devuelve el contenido tal cual (con `\r` si el
   -- archivo es CRLF), pero Neovim quita el `\r` en buffers `fileformat=dos`.
@@ -76,7 +92,11 @@ end
 function M.changed_files()
   local root = M.root()
   if not root then return {} end
-  local tracked = vim.fn.systemlist({ "git", "-C", root, "diff", "--name-only", "HEAD" })
+  -- Cambios vs la base actual. Para el index (":") comparamos working vs index
+  -- (sin ref); para un commit/branch/HEAD, `git diff --name-only <ref>`.
+  local diff_cmd = { "git", "-C", root, "diff", "--name-only" }
+  if M.base_ref ~= ":" then diff_cmd[#diff_cmd + 1] = M.base_ref end
+  local tracked = vim.fn.systemlist(diff_cmd)
   if vim.v.shell_error ~= 0 then tracked = {} end
   local untracked = vim.fn.systemlist({ "git", "-C", root, "ls-files", "--others", "--exclude-standard" })
   if vim.v.shell_error ~= 0 then untracked = {} end
