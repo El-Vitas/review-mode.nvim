@@ -300,6 +300,21 @@ Tests: `tests/e2e/split_markdown.lua` (cambiar de archivo en ambos sentidos,
 cambiar de vista desde cada columna, cerrar cada columna, cerrar la pestaña;
 y que `eventignore` quede limpio).
 
+### B20 — Un archivo volvía en modo diff después de salir del split
+Reportado el 2026-10-28: tras salir del split, `<leader>rn/ri/rv` "no cambiaban
+la vista". `'diff'` y las opciones de ventana se guardan por buffer en cada
+ventana. Si el par se desarmaba porque la ventana pasó a mostrar otro archivo,
+el `diffoff` apagaba el diff del archivo NUEVO; el del archivo del par quedaba
+guardado y volvía encendido (con el resaltado verde del split) cuando ese
+archivo regresaba a la ventana, así que en normal o inline seguía viéndose como
+diff. Estaba también en el código previo a la revisión de calidad; antes no se
+llegaba a ver porque Neovim se caía en ese mismo cambio de archivo (B19).
+Fix: al desarmar el par, si la ventana ya muestra otro archivo, se anota
+`[ventana][buffer del par]`; cuando ese buffer vuelve a esa ventana,
+`clear_stale` apaga su diff y restaura folds y resaltado. Solo se tocan diffs
+que puso el split: un `:diffthis` del usuario no se apaga. Tests:
+`tests/e2e/split_windows.lua` (W18-W20).
+
 ### D27 — Vista inline con debounce en insert
 `inline.render` recalcula el diff de todo el buffer: 40 ms por tecla con 10 000
 líneas muy cambiadas. En `TextChangedI` se agrupa con un solo temporizador de

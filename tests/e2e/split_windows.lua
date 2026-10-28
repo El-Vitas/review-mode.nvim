@@ -185,6 +185,43 @@ ck(views.mode == "split", "W16c ir a un archivo sin cambios no apaga el split gl
 vim.cmd("edit " .. R .. "/src/keep.ts"); wait()
 pair("W16d volver a un archivo con cambios rearma el par")
 
+-- ── Volver a un archivo después de salir del split ──
+-- 'diff' y el resaltado se guardan POR BUFFER en cada ventana: si el par se
+-- desarma con la ventana mostrando otro archivo, al volver el anterior traía el
+-- diff encendido y parecía que <leader>rn/ri/rv no cambiaban nada.
+vim.cmd("only"); vim.cmd("edit " .. R .. "/src/keep.ts"); wait()
+views.set(core, "split"); wait()
+pair("W18 par sobre keep.ts")
+vim.cmd("edit " .. R .. "/nested/deep/f.ts"); wait()
+views.set(core, "normal"); wait()
+vim.cmd("edit " .. R .. "/src/keep.ts"); wait()
+single("W18b volver a keep.ts en normal: sin diff pegado")
+ck(vim.wo.winhighlight == before_wh, ("W18c ...ni el resaltado del split (%q)"):format(vim.wo.winhighlight))
+views.set(core, "inline"); wait()
+single("W18d inline sobre keep.ts: sin diff")
+views.set(core, "split"); wait()
+pair("W18e split otra vez sobre keep.ts")
+views.set(core, "normal"); wait()
+
+-- ── Un diff hecho a mano no se toca ──
+vim.cmd("only"); vim.cmd("edit " .. R .. "/src/keep.ts"); wait()
+vim.cmd("diffthis"); vim.cmd("vsplit " .. R .. "/src/mod.ts"); vim.cmd("diffthis"); wait()
+vim.cmd("wincmd p"); wait(); vim.cmd("wincmd p"); wait()
+local manual = 0
+for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do if vim.wo[w].diff then manual = manual + 1 end end
+ck(manual == 2, ("W19 un :diffthis del usuario sigue activo al cambiar de ventana (diff=%d)"):format(manual))
+vim.cmd("diffoff!"); vim.cmd("only"); wait()
+
+-- ── Los atajos reales recorren las tres vistas ──
+vim.cmd("edit " .. R .. "/src/keep.ts"); wait()
+local seen = {}
+for _ = 1, 3 do
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Space>rv", true, false, true), "mx", false); wait()
+  seen[#seen + 1] = views.mode
+end
+ck(table.concat(seen, ",") == "inline,split,normal",
+  "W20 <leader>rv recorre inline → split → normal (" .. table.concat(seen, ",") .. ")")
+
 views.set(core, "normal"); wait()
 single("W17 normal al final")
 log("TOTAL fails=" .. fails)

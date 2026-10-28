@@ -48,6 +48,9 @@ local function apply_current(core)
       win = vim.api.nvim_get_current_win()
       buf = vim.api.nvim_get_current_buf()
     end
+    -- Un archivo que vuelve a una ventana donde el split le dejó el diff puesto
+    -- (el par se desarmó mientras la ventana mostraba otro archivo): apagarlo.
+    split.clear_stale(win, buf)
     if M.mode == "inline" then
       split.teardown()
       if vim.bo[buf].buftype == "" then inline.render(core, buf) end
@@ -130,6 +133,7 @@ function M.setup(core, opts)
       -- Antes que nada: si la ventana que se cierra está en modo diff, evitar
       -- que Neovim dispare DiffUpdated en medio del cierre (split.lua, B19).
       if vim.api.nvim_win_is_valid(win) and vim.wo[win].diff then split.guard_diff_close() end
+      split.forget_win(win)
       local ok, was_pair = pcall(split.on_win_closed, win)
       if ok and was_pair and M.mode == "split" then
         M.mode = "normal"

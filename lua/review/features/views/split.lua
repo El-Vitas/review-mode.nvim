@@ -141,26 +141,59 @@ local function open_all_folds(win)
   end
 end
 
+-- Apaga el diff de la ventana `w` (para el buffer que muestra AHORA) y le
+-- devuelve las opciones de fold/fillchars/resaltado guardadas al armar el par.
+local function diffoff_restore(w, sv)
+  pcall(vim.api.nvim_win_call, w, function() vim.cmd("diffoff") end)
+  pcall(function()
+    sv = sv or {}
+    local wl = vim.wo[w][0]
+    if sv.fe == nil then wl.foldenable = true else wl.foldenable = sv.fe end
+    wl.foldlevel = sv.fl or 99
+    wl.foldmethod = sv.fm or "manual"
+    wl.fillchars = sv.fc or ""
+    wl.winhighlight = sv.wh or ""
+  end)
+end
+
+-- Diffs que quedaron puestos en un buffer que ya no se muestra en su ventana:
+-- [win][buf] = opciones guardadas. 'diff' y las opciones de ventana se guardan
+-- POR BUFFER: si el par se desarma porque la ventana pasó a mostrar otro
+-- archivo, el `diffoff` apaga el diff del archivo nuevo, y el del anterior
+-- vuelve encendido cuando ese archivo regresa a la ventana. Solo se anotan los
+-- diffs que puso el split, para no tocar un `:diffthis` del usuario.
+M._stale = {}
+
+--- Si `buf` vuelve a `win` con un diff que dejó el split, lo apaga.
+function M.clear_stale(win, buf)
+  local per_win = M._stale[win]
+  local sv = per_win and per_win[buf]
+  if not sv then return end
+  per_win[buf] = nil
+  if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == buf then
+    diffoff_restore(win, sv)
+  end
+end
+
+--- Olvida lo anotado para una ventana que se cerró.
+function M.forget_win(win) M._stale[win] = nil end
+
 -- Saca el diff de la ventana real y restaura sus opciones de fold/fillchars.
 local function restore_main(s)
   local w = s.main_win
+  if not (w and vim.api.nvim_win_is_valid(w)) then return end
   -- Limpiar el padding virtual del buffer REAL (el scratch se wipea solo, pero
   -- el archivo verdadero conserva sus extmarks si no los borramos acá).
-  if w and vim.api.nvim_win_is_valid(w) then
-    clear_pad(vim.api.nvim_win_get_buf(w))
+  local cur = vim.api.nvim_win_get_buf(w)
+  clear_pad(cur)
+  if s.main_buf and s.main_buf ~= cur then
+    -- La ventana ya muestra otro archivo: el diff del archivo del par sigue
+    -- guardado en esta ventana. Se apaga cuando ese archivo vuelva (clear_stale).
+    if vim.api.nvim_buf_is_valid(s.main_buf) then clear_pad(s.main_buf) end
+    M._stale[w] = M._stale[w] or {}
+    M._stale[w][s.main_buf] = s.saved or {}
   end
-  if w and vim.api.nvim_win_is_valid(w) then
-    pcall(vim.api.nvim_win_call, w, function() vim.cmd("diffoff") end)
-    pcall(function()
-      local sv = s.saved or {}
-      local wl = vim.wo[w][0]
-      if sv.fe == nil then wl.foldenable = true else wl.foldenable = sv.fe end
-      wl.foldlevel = sv.fl or 99
-      wl.foldmethod = sv.fm or "manual"
-      wl.fillchars = sv.fc or ""
-      wl.winhighlight = sv.wh or ""
-    end)
-  end
+  diffoff_restore(w, s.saved)
 end
 
 --- Cierra la columna HEAD sin que Neovim recalcule el diff EN MEDIO del cierre.
@@ -305,6 +338,7 @@ function M.sync(core)
   sess.rel = rel
   sess.head = head
   sess.tick = vim.api.nvim_buf_get_changedtick(buf)
+  sess.main_buf = buf -- el archivo del par (la ventana puede pasar a mostrar otro)
   M._session = sess
 
   -- Scratch = contenido HEAD.
