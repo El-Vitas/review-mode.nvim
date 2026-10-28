@@ -12,12 +12,40 @@ end
 
 local function find_at(core, rel, lnum)
   for _, c in ipairs(core.state.for_path(rel)) do
-    if not c.reply_to then -- las respuestas no son objetivo directo del cursor
+    -- Respuestas y comentarios de ARCHIVO no son objetivo directo del cursor
+    -- por línea (los file_level ni siquiera tienen lnum).
+    if not c.reply_to and not c.file_level then
       local lo = math.min(c.lnum, c.end_lnum or c.lnum)
       local hi = math.max(c.lnum, c.end_lnum or c.lnum)
       if lnum >= lo and lnum <= hi then return c end
     end
   end
+  return nil
+end
+
+local function is_last_line(bufnr, lnum)
+  return lnum >= vim.api.nvim_buf_line_count(bufnr)
+end
+
+-- Comentario de ARCHIVO sobre el que actuar: el último NO resuelto; si están
+-- todos resueltos, el último. nil si no hay ninguno. (Para varios, usar la lista.)
+local function file_target(core, rel)
+  local last, last_open
+  for _, c in ipairs(core.state.for_path(rel)) do
+    if c.file_level and not c.reply_to then
+      last = c
+      if not c.resolved then last_open = c end
+    end
+  end
+  return last_open or last
+end
+
+-- El comentario a accionar desde el cursor: el de LÍNEA si lo hay; si no, y
+-- estás en la última línea, el de ARCHIVO. Así no "molesta" a los de línea.
+local function target_at(core, rel, bufnr, lnum)
+  local c = find_at(core, rel, lnum)
+  if c then return c end
+  if is_last_line(bufnr, lnum) then return file_target(core, rel) end
   return nil
 end
 
@@ -52,7 +80,7 @@ function M._delete_at(core, bufnr, lnum)
   if not rel then return false end
 
   lnum = clamp(bufnr, lnum)
-  local c = find_at(core, rel, lnum)
+  local c = target_at(core, rel, bufnr, lnum)
   if not c then return false end
 
   local ok = core.state.remove(c.id)
@@ -66,7 +94,7 @@ function M._resolve_at(core, bufnr, lnum)
   if not rel then return false end
 
   lnum = clamp(bufnr, lnum)
-  local c = find_at(core, rel, lnum)
+  local c = target_at(core, rel, bufnr, lnum)
   if not c then return false end
 
   local ok = core.state.update(c.id, { resolved = not c.resolved })
@@ -82,7 +110,7 @@ function M._update_at(core, bufnr, lnum, text)
   if not rel then return false end
   if text == nil or vim.trim(text) == "" then return false end
   lnum = clamp(bufnr, lnum)
-  local c = find_at(core, rel, lnum)
+  local c = target_at(core, rel, bufnr, lnum)
   if not c then return false end
   local ok = core.state.update(c.id, { text = text })
   render.render(core, bufnr)
@@ -172,24 +200,50 @@ function M.add_here(core, opts)
   })
 end
 
+--- Núcleo testeable: agrega un comentario de ARCHIVO (file_level, sin línea).
+--- @return table|nil el comentario creado
+function M._add_file(core, bufnr, text)
+  local rel = core.git.rel_path(bufnr)
+  if not rel then return nil end
+  if text == nil or vim.trim(text) == "" then return nil end
+  local c = core.state.add({ path = rel, file_level = true, text = text })
+  render.render(core, bufnr)
+  core.state.persist()
+  return c
+end
+
+--- Abre el popup para dejar un comentario a nivel de ARCHIVO (aparece abajo del
+--- todo). No depende de la línea del cursor.
+function M.add_file_here(core)
+  local bufnr = vim.api.nvim_get_current_buf()
+  if not core.git.rel_path(bufnr) then
+    vim.notify("review.nvim: file not in repo", vim.log.levels.INFO)
+    return
+  end
+  open_popup({
+    title = " File comment ",
+    on_save = function(text) M._add_file(core, bufnr, text) end,
+  })
+end
+
 --- Edita el comentario que cubre la línea actual: abre el popup pre-cargado con
 --- su texto. Si no hay comentario en la línea, avisa y no hace nada.
 function M.edit_here(core)
   local bufnr = vim.api.nvim_get_current_buf()
   local rel = core.git.rel_path(bufnr)
   if not rel then return end
-  local lnum = vim.fn.line(".")
-  local c = find_at(core, rel, clamp(bufnr, lnum))
+  local lnum = clamp(bufnr, vim.fn.line("."))
+  local c = target_at(core, rel, bufnr, lnum)
   if not c then
     vim.notify("review.nvim: no comment on this line", vim.log.levels.INFO)
     return
   end
   open_popup({
-    title = " Edit comment ",
+    title = c.file_level and " Edit file comment " or " Edit comment ",
     initial = c.text or "",
     start_insert = false,
     on_save = function(text)
-      M._update_at(core, bufnr, c.lnum, text)
+      M._update_at(core, bufnr, lnum, text) -- re-resuelve el mismo target por línea
     end,
   })
 end
@@ -199,7 +253,7 @@ end
 local function best_at(core, rel, lnum)
   local best, best_span
   for _, c in ipairs(core.state.for_path(rel)) do
-    if not c.reply_to then
+    if not c.reply_to and not c.file_level then
       local lo = math.min(c.lnum, c.end_lnum or c.lnum)
       local hi = math.max(c.lnum, c.end_lnum or c.lnum)
       if lnum >= lo and lnum <= hi then
@@ -418,7 +472,9 @@ function M.peek_here(core)
   local bufnr = vim.api.nvim_get_current_buf()
   local rel = core.git.rel_path(bufnr)
   if not rel then return end
-  local c = best_at(core, rel, clamp(bufnr, vim.fn.line(".")))
+  local lnum = clamp(bufnr, vim.fn.line("."))
+  local c = best_at(core, rel, lnum)
+  if not c and is_last_line(bufnr, lnum) then c = file_target(core, rel) end
   if not c then
     vim.notify("review.nvim: no comment on this line", vim.log.levels.INFO)
     return

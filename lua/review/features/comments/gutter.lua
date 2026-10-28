@@ -28,7 +28,8 @@ local function ranked_for(buf)
   if rel then
     -- Las respuestas (reply_to) no dibujan corchete propio: viven en el hilo.
     for _, c in ipairs(core.state.for_path(rel)) do
-      if not c.reply_to then ranked[#ranked + 1] = c end
+      -- file_level no tiene línea → no dibuja corchete en el gutter.
+      if not c.reply_to and not c.file_level then ranked[#ranked + 1] = c end
     end
     table.sort(ranked, function(a, b) return (a.lnum or 0) < (b.lnum or 0) end)
     for i, c in ipairs(ranked) do color[c.id] = ((i - 1) % PALETTE_N) + 1 end

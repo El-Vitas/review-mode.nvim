@@ -12,10 +12,11 @@ local function to_qf_items(core, comments)
   local items = {}
   for _, c in ipairs(comments) do
     local prefix = c.resolved and "[✓] " or ""
+    if c.file_level then prefix = prefix .. "⧉ file · " end -- marca de comentario de archivo
     local text = (c.text or ""):gsub("[\r\n]+", " ")
     table.insert(items, {
       filename = base .. c.path,
-      lnum = c.lnum,
+      lnum = c.lnum or 1, -- file_level no tiene línea; la quickfix igual necesita una
       col = 1,
       text = prefix .. text,
     })
@@ -193,10 +194,14 @@ function M.setup(core, opts)
   vim.api.nvim_create_user_command("Rt", toggle_hidden, {})
   vim.api.nvim_create_user_command("ReviewPeek", peek, {})           -- ver comentario (tarjeta flotante)
   vim.api.nvim_create_user_command("Rp", peek, {})
+  local function file_comment() mode.add_file_here(core) end
+  vim.api.nvim_create_user_command("ReviewFileComment", file_comment, {}) -- comentario de archivo (abajo del todo)
+  vim.api.nvim_create_user_command("Rfc", file_comment, {})
 
   vim.keymap.set("n", leader .. "e", function() mode.edit_here(core) end, { desc = "Review: edit comment on line" })
   vim.keymap.set("n", leader .. "c", function() mode.add_here(core, {}) end, { desc = "Review: comment line" })
   vim.keymap.set("v", leader .. "c", function() mode.add_here(core, {}) end, { desc = "Review: comment range" })
+  vim.keymap.set("n", leader .. "C", function() mode.add_file_here(core) end, { desc = "Review: comment file (bottom)" })
   vim.keymap.set("n", leader .. "d", function() mode.delete_here(core) end, { desc = "Review: delete comment" })
   vim.keymap.set("n", leader .. "x", function() mode.resolve_here(core) end, { desc = "Review: resolve comment" })
   vim.keymap.set("n", leader .. "l", list_all, { desc = "Review: list comments (global)" })

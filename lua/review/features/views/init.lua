@@ -37,7 +37,17 @@ local function apply_current(core)
   local ok, err = pcall(function()
     local win = vim.api.nvim_get_current_win()
     local buf = vim.api.nvim_get_current_buf()
-    if split.is_scratch(buf) then return end -- ignorar el panel HEAD
+    if split.is_scratch(buf) then
+      -- Cambio de vista DELIBERADO parado en el panel HEAD: operar sobre la
+      -- ventana de edición, no sobre el scratch. Sin esto, salir de split desde
+      -- el panel izquierdo no limpiaba nada ("solo cambia una división").
+      -- (El path pasivo de BufEnter ya descarta el scratch antes de llegar acá.)
+      local mw = split.main_win()
+      if not mw then return end
+      vim.api.nvim_set_current_win(mw)
+      win = vim.api.nvim_get_current_win()
+      buf = vim.api.nvim_get_current_buf()
+    end
     if M.mode == "inline" then
       split.teardown()
       if vim.bo[buf].buftype == "" then inline.render(core, buf) end
@@ -117,7 +127,20 @@ function M.setup(core, opts)
         -- Solo al TERMINAR un cambio (no por cada tecla en insert): el diff
         -- nativo ya se actualiza live; esto solo detecta si volvió a HEAD.
         pcall(apply_current, core)
+        vim.schedule(function() pcall(split.repad) end) -- re-alinear wrap
       end
+    end,
+  })
+
+  -- Al cambiar el ANCHO de las columnas (sidebar abre/cierra, resize de ventana)
+  -- o al togglear `wrap` (<leader>w), las alturas de wrap cambian → recalcular
+  -- el padding virtual de alineación.
+  vim.api.nvim_create_autocmd({ "WinResized", "VimResized", "OptionSet" }, {
+    group = group,
+    callback = function(a)
+      if M.mode ~= "split" then return end
+      if a.event == "OptionSet" and a.match ~= "wrap" then return end
+      vim.schedule(function() pcall(split.repad) end)
     end,
   })
 

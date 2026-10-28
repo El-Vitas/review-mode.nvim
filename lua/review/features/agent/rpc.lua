@@ -63,6 +63,10 @@ function M.context(core, id)
   local c = core.state.by_id(id)
   if not c then return "null" end
   local lines = {}
+  -- Comentario de ARCHIVO: no hay líneas de contexto (aplica a todo el archivo).
+  if c.file_level or not c.lnum then
+    return vim.json.encode({ comment = clean(c), lines = lines })
+  end
   -- Preferimos el contenido del buffer abierto; si no, disco.
   local b = buf_for_path(core, c.path)
   if b then
@@ -81,7 +85,9 @@ end
 
 function M.add(core, json_or_table)
   local data = decode_maybe(json_or_table)
-  if type(data) ~= "table" or not data.path or not data.lnum or not data.text then return "" end
+  -- Acepta comentarios de línea (con lnum) y de ARCHIVO (file_level, sin lnum).
+  if type(data) ~= "table" or not data.path or not data.text then return "" end
+  if not data.lnum and not data.file_level then return "" end
   data.author = data.author or "agent"
   local c = core.state.add(data)
   core.state.persist()

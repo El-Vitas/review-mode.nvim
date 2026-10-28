@@ -53,9 +53,11 @@ cierra, `q` cierra) · `]r` / `[r` saltan al siguiente/anterior cambio.
 
 **Base de comparación:** `:ReviewBase` / `:Rb` / `<leader>rb` abre un modal
 centrado para elegir contra qué se compara todo review (inline, split, cambios):
-`HEAD`, `index` (staged), o un commit reciente (hash + nombre). `Enter` selecciona,
-`q`/`Esc` cancela. Al elegir, también sincroniza los signos de gitsigns
-(`change_base`). Default: `HEAD`.
+`HEAD`, `index` (staged), o un commit reciente (hash + nombre). `f` togglea el
+filtro **this branch** (commits propios de la rama, `base..HEAD`) ↔ **global**
+(historial completo, `+` carga más). `Enter` selecciona, `q`/`Esc` cancela. Al
+elegir, también sincroniza los signos de gitsigns (`change_base`). El sidebar
+`changed` (`<leader>s`) refleja la base elegida. Default: `HEAD`.
 
 ## Sidebar
 

@@ -25,7 +25,8 @@ function M.render(core, bufnr)
   -- viven dentro del hilo de su padre (peek). Solo se pinta el top-level.
   local comments = {}
   for _, c in ipairs(core.state.for_path(rel)) do
-    if not c.reply_to then comments[#comments + 1] = c end
+    -- Los file_level NO van pegados a una línea: se pintan aparte, al final.
+    if not c.reply_to and not c.file_level then comments[#comments + 1] = c end
   end
   table.sort(comments, function(a, b) return (a.lnum or 0) < (b.lnum or 0) end)
 
@@ -108,6 +109,52 @@ function M.render(core, bufnr)
       })
     end
   end
+
+  -- Comentarios de ARCHIVO (file_level): tarjetas ABAJO DEL TODO (debajo de la
+  -- última línea). No pertenecen a ninguna línea → no llevan _extmark_id ni
+  -- anchor_text, así que sync_positions/relocate/reconcile los ignoran.
+  M.render_file_comments(core, bufnr, rel)
+end
+
+--- Pinta las tarjetas de los comentarios de archivo como líneas virtuales
+--- debajo de la última línea del buffer. Idempotente (render() ya limpió el ns).
+function M.render_file_comments(core, bufnr, rel)
+  rel = rel or core.git.rel_path(bufnr)
+  if not rel then return end
+  local files = {}
+  for _, c in ipairs(core.state.for_path(rel)) do
+    if c.file_level and not c.reply_to then files[#files + 1] = c end
+  end
+  if #files == 0 then return end
+  table.sort(files, function(a, b) return (a.created_at or "") < (b.created_at or "") end)
+
+  local vlines = {
+    { { "▏ ", "ReviewCommentBadgeEdge" }, { "⧉ file comments ", "ReviewCommentBadge" }, { "▕", "ReviewCommentBadgeEdge" } },
+  }
+  for _, c in ipairs(files) do
+    local text = (c.text or ""):gsub("[\r\n]+", " ")
+    if #text > 100 then text = text:sub(1, 98) .. "…" end
+    local resolved = c.resolved
+    local is_agent = c.author and c.author ~= "user"
+    local badge_hl, edge_hl, icon
+    if resolved then
+      badge_hl, edge_hl, icon = "ReviewCommentBadgeResolved", "ReviewCommentBadgeEdgeResolved", "✓"
+    elseif is_agent then
+      badge_hl, edge_hl, icon = "ReviewCommentBadgeAgent", "ReviewCommentBadgeEdgeAgent", "🤖"
+    else
+      badge_hl, edge_hl, icon = "ReviewCommentBadge", "ReviewCommentBadgeEdge", "💬"
+    end
+    local nrep = #core.state.replies(c.id)
+    local suffix = nrep > 0 and (" ↩" .. nrep) or ""
+    vlines[#vlines + 1] = {
+      { "▏ ", edge_hl },
+      { icon .. " " .. text .. suffix .. " ", badge_hl },
+      { "▕", edge_hl },
+    }
+  end
+  local last = vim.api.nvim_buf_line_count(bufnr)
+  -- virt_lines por defecto van DEBAJO de la línea ancla → abajo del todo.
+  vim.api.nvim_buf_set_extmark(bufnr, core.ns.comments, last - 1, 0, { virt_lines = vlines })
 end
 
 function M.sync_positions(core, bufnr)

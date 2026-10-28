@@ -1,6 +1,9 @@
 local M = {}
 
 local function anchor(c)
+  if c.file_level or not c.lnum then
+    return string.format("`%s` (file)", c.path) -- comentario a nivel de archivo
+  end
   if c.end_lnum and c.end_lnum > c.lnum then
     return string.format("`%s:%d-%d`", c.path, c.lnum, c.end_lnum)
   end
