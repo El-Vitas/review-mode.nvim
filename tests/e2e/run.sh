@@ -8,7 +8,9 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INIT="${REVIEW_E2E_INIT:-$HOME/.config/nvim/init.lua}"
 SCRIPTS=("$@")
-[ ${#SCRIPTS[@]} -eq 0 ] && SCRIPTS=(driver.lua split_reentry.lua split_hard.lua split_windows.lua folder_click.lua)
+[ ${#SCRIPTS[@]} -eq 0 ] && SCRIPTS=(driver.lua split_reentry.lua split_hard.lua split_windows.lua split_markdown.lua folder_click.lua)
+# Estos commitean sus propios archivos de prueba en el fixture: el HEAD cambia.
+COMMITS_IN_FIXTURE=" split_hard.lua split_markdown.lua "
 
 TOTAL_FAIL=0
 for script in "${SCRIPTS[@]}"; do
@@ -31,7 +33,7 @@ for script in "${SCRIPTS[@]}"; do
   NOK="$(grep -c '^ok ' "$RESULTS")"; NFAIL="$(grep -c '^FAIL ' "$RESULTS")"; DERR="$(grep -c 'DRIVER-ERROR' "$RESULTS")"
   grep -E '^(FAIL|DRIVER-ERROR)' "$RESULTS"
   RO="intacto"
-  if [ "$BEFORE" != "$AFTER" ] && [ "$script" != "split_hard.lua" ]; then RO="MODIFICADO"; NFAIL=$((NFAIL + 1)); fi
+  if [ "$BEFORE" != "$AFTER" ] && [[ "$COMMITS_IN_FIXTURE" != *" $script "* ]]; then RO="MODIFICADO"; NFAIL=$((NFAIL + 1)); fi
   [ "$NOK" = "0" ] && [ "$NFAIL" = "0" ] && [ "$DERR" = "0" ] && { echo "SIN RESULTADOS (¿hang/timeout?)"; NFAIL=1; }
   echo "── $script: ok=$NOK fail=$NFAIL driver_errors=$DERR repo=$RO"
   TOTAL_FAIL=$((TOTAL_FAIL + NFAIL + DERR))

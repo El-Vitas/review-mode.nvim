@@ -127,6 +127,9 @@ function M.setup(core, opts)
     callback = function(a)
       local win = tonumber(a.match)
       if not win then return end
+      -- Antes que nada: si la ventana que se cierra está en modo diff, evitar
+      -- que Neovim dispare DiffUpdated en medio del cierre (split.lua, B19).
+      if vim.api.nvim_win_is_valid(win) and vim.wo[win].diff then split.guard_diff_close() end
       local ok, was_pair = pcall(split.on_win_closed, win)
       if ok and was_pair and M.mode == "split" then
         M.mode = "normal"

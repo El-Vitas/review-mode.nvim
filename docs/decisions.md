@@ -277,6 +277,29 @@ escribía, el comentario se anclaba al número viejo. Fix: el rango se ancla con
 extmarks temporales mientras el popup está abierto. Tests:
 `tests/comments/mode_spec.lua`.
 
+### B19 — Neovim se caía (SIGSEGV) al cerrar una columna del split con markdown
+Reportado por el usuario el 2026-10-28: en split, cambiar de archivo cerró
+Neovim. Core dump: `f_win_findbuf` ← autocmd `DiffUpdated` ← `ex_diffupdate` ←
+`diff_check_with_linestatus` ← `win_close`. Mecanismo: `diff_check` corre
+`ex_diffupdate()` si el diff de la pestaña está invalidado, antes de mirar si
+la ventana está en modo diff; al cerrar una ventana (la HEAD del plugin, o
+cualquier ventana diff con `:q`), Neovim redimensiona la vecina, recalcula el
+diff y dispara `DiffUpdated` con la lista de ventanas a medio cambiar. El
+callback de render-markdown (adjunto al buffer markdown) llama a `win_findbuf`
+ahí y Neovim lee memoria inválida. Es un bug de Neovim: reproducido en 0.12.1 y
+0.12.6, y con el código de review-mode y de render-markdown anteriores a la
+revisión de calidad; sin el autocmd de render-markdown no se cae.
+Fix de nuestro lado, en dos lugares:
+- `close_head_win`: antes de cerrar la columna HEAD apaga su diff, recalcula con
+  `:diffupdate` en un momento seguro y cierra con `DiffUpdated` en
+  `eventignore` solo durante el cierre.
+- `guard_diff_close`: en `WinClosed` (corre antes de sacar la ventana del
+  layout) de cualquier ventana en modo diff, ignora `DiffUpdated` hasta el
+  próximo tick. Cubre el `:q` del usuario, que no pasa por el plugin.
+Tests: `tests/e2e/split_markdown.lua` (cambiar de archivo en ambos sentidos,
+cambiar de vista desde cada columna, cerrar cada columna, cerrar la pestaña;
+y que `eventignore` quede limpio).
+
 ### D27 — Vista inline con debounce en insert
 `inline.render` recalcula el diff de todo el buffer: 40 ms por tecla con 10 000
 líneas muy cambiadas. En `TextChangedI` se agrupa con un solo temporizador de

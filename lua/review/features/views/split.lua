@@ -163,15 +163,53 @@ local function restore_main(s)
   end
 end
 
+--- Cierra la columna HEAD sin que Neovim recalcule el diff EN MEDIO del cierre.
+--- `:diffoff` deja el diff de la pestaña invalidado, y al cerrar una ventana
+--- Neovim redimensiona la vecina, ve el diff invalidado y corre :diffupdate,
+--- que dispara DiffUpdated mientras la lista de ventanas está a medio cambiar.
+--- Un callback que consulta ventanas ahí (render-markdown llama a win_findbuf)
+--- hacía caer a Neovim con SIGSEGV. Por eso: diff apagado también en esta
+--- ventana, recálculo en un momento seguro, y DiffUpdated ignorado solo
+--- durante el cierre. Ver docs/decisions.md (B19).
+local function close_head_win(win)
+  if not (win and vim.api.nvim_win_is_valid(win)) then return end
+  pcall(vim.api.nvim_win_call, win, function() vim.cmd("diffoff") end)
+  pcall(vim.cmd, "diffupdate")
+  local ei = vim.go.eventignore
+  vim.go.eventignore = (ei == "") and "DiffUpdated" or (ei .. ",DiffUpdated")
+  pcall(vim.api.nvim_win_close, win, true) -- scratch: bufhidden=wipe
+  vim.go.eventignore = ei
+end
+
+-- Guardia para un cierre que NO hace este plugin (`:q` del usuario sobre una
+-- ventana en modo diff): Neovim invalida el diff al cerrarla y corre
+-- :diffupdate en medio del cierre (mismo SIGSEGV que close_head_win). Se llama
+-- desde WinClosed, que corre antes de sacar la ventana del layout; DiffUpdated
+-- queda ignorado hasta el próximo tick y después se recalcula normal. Al
+-- restaurar se saca solo la entrada propia de 'eventignore'.
+local guarding = false
+function M.guard_diff_close()
+  if guarding then return end
+  guarding = true
+  local ei = vim.go.eventignore
+  vim.go.eventignore = (ei == "") and "DiffUpdated" or (ei .. ",DiffUpdated")
+  vim.schedule(function()
+    local parts = vim.split(vim.go.eventignore, ",", { trimempty = true })
+    for i, p in ipairs(parts) do
+      if p == "DiffUpdated" then table.remove(parts, i); break end
+    end
+    vim.go.eventignore = table.concat(parts, ",")
+    guarding = false
+  end)
+end
+
 --- Cierra la sesión de split (saca el diff de la ventana real y cierra el HEAD).
 function M.teardown()
   local s = M._session
   M._session = nil
   if not s then return end
   restore_main(s)
-  if s.left_win and vim.api.nvim_win_is_valid(s.left_win) then
-    pcall(vim.api.nvim_win_close, s.left_win, true) -- scratch: bufhidden=wipe
-  end
+  close_head_win(s.left_win)
 end
 
 -- Crea el panel HEAD (izquierda) para la ventana `main_win`.
@@ -211,8 +249,8 @@ function M.on_win_closed(win)
   vim.schedule(function()
     if is_left then
       restore_main(s)
-    elseif s.left_win and vim.api.nvim_win_is_valid(s.left_win) then
-      pcall(vim.api.nvim_win_close, s.left_win, true)
+    else
+      close_head_win(s.left_win)
     end
   end)
   return true
