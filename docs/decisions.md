@@ -174,4 +174,93 @@ no-dependencia entre features intacta).
 repo abiertos (antes solo lo hacía en `BufEnter`), así los comentarios que agrega
 el agente por RPC aparecen en vivo. Antes de repintar hace `sync_positions` para
 no reubicar extmarks en su `lnum` viejo y perder el desplazamiento por gravity.
-</content>
+
+### D24 — Cerrar a mano una columna del split pasa a la vista normal
+Decisión del usuario (2026-10-28). Cerrar a mano cualquiera de las dos columnas
+del split (la HEAD, la de edición, la pestaña que las contiene o la ventana de
+código que tenía el par) se toma como "no quiero split": se cierra la otra
+columna y la vista global pasa a `normal`. Antes el par reaparecía en el
+siguiente `BufEnter` (cambiar de foco o de archivo), o sea que la acción del
+usuario se deshacía sola. Los cierres que hace el propio plugin (`teardown` al
+cambiar de vista o de archivo) no cuentan: sueltan la sesión antes de cerrar la
+ventana, así que `on_win_closed` no la reconoce. Verificado por
+`tests/e2e/split_windows.lua` (W10-W16).
+
+### D25 — El peek es una tarjeta flotante (reemplaza a D8)
+D8 describía el peek como virtual lines; el código lo volvió a hacer flotante y
+centrado (`comments/mode.lua`, `open_peek_float`), y así lo documenta
+`commands.md`. Una sola tarjeta a la vez; `x`, `d` y `e` actúan sobre el
+comentario que muestra, por id.
+
+### D26 — Los caches de git se invalidan al volver el foco
+`git commit`, `git mv`, `git add` o un `checkout` hechos fuera de Neovim cambian
+el HEAD o los renames sin tocar los archivos abiertos, y los caches (raíz por
+directorio, mapa de renames, HEAD de inline y scrollbar) quedaban viejos: la
+vista seguía marcando como cambio lo ya commiteado. En `FocusGained` se vacían
+y se reaplica la vista. Costo: un `git show` por buffer visible al volver.
+
+## Revisión de calidad (2026-10-28)
+
+Bugs encontrados por `lua-language-server`, `jscpd` y una revisión por ejes
+(seguridad, integridad, rendimiento, duplicación, prácticas), corregidos con test.
+
+### B7 — comments.json no atómico y corrupto tratado como vacío
+`io.open(p, "w")` trunca antes de escribir: un corte a mitad dejaba el archivo
+vacío, `load()` lo tomaba por "sin comentarios" y el siguiente `persist()` lo
+pisaba. Fix: `write_json` escribe a `.tmp` y hace `fs_rename` (atómico),
+comprobando `write`/`close`; un JSON ilegible se aparta como
+`comments.json.corrupt-<fecha>` con aviso. Tests: `tests/core/store_spec.lua`.
+
+### B8 — Los comentarios se guardaban en el repo del cwd del momento
+`store.path()` resolvía el cwd en cada guardado: tras `:cd` a otro repo, la lista
+del repo A se escribía en el B. Con nvim abierto fuera de un repo, `persist()`
+fallaba en silencio. Fix: `state` fija la raíz al cargar y guarda ahí;
+`DirChanged` guarda el repo anterior y carga el nuevo (`state.switch_root`); un
+guardado que falla avisa una vez. Tests: `tests/core/state_spec.lua`.
+
+### B9 — Dos `git diff -M` por cada archivo nuevo
+`rename_source` lanzaba dos diffs completos por archivo (120-150 ms en FastCase
+con base `HEAD~20`) y se quedaba solo con la entrada de ese archivo. Fix: un
+mapa destino→origen por repo y base, calculado una vez. Tests:
+`tests/core/git_spec.lua`.
+
+### B10 — La API RPC del agente no validaba la entrada
+Un `lnum` texto, tabla o `null` se guardaba y rompía el render (y el gutter, que
+Neovim reseteaba con E5108) en cada arranque; `context()` leía archivos fuera del
+repo con `../` y recorría rangos sin tope (2e7 líneas = 741 ms y 60 MB); el
+cliente podía fijar `id`, `resolved` o firmar como `user`. Fix: validación en el
+borde (tipos, rangos, rutas relativas sin `..`, texto ≤ 64 KB, autor ≠ `user`),
+lista blanca de campos, `realpath` confinado al repo y tope de 500 líneas;
+`buf_for_path` compara por `rel_path` (symlinks y raíz por archivo, como B1).
+Tests: `tests/agent/rpc_spec.lua`.
+
+### B11 — Acciones por cursor con comentarios solapados, y peek de archivo
+`find_at` devolvía el primer comentario por orden de inserción y el peek el más
+específico: la `e` del peek editaba otro comentario. El peek de un comentario de
+archivo fallaba concatenando `lnum = nil`. Fix: un solo criterio (el más
+específico), edición por id desde popup y peek, título "file". Tests:
+`tests/comments/mode_spec.lua`.
+
+### B12 — `cnoreabbrev` expandía en cualquier posición
+`:%s/rl/x/g` pasaba a `:%s/Rl/x/g` y `:g/rt/d` borraba las líneas con "Rt". Fix:
+abreviatura `<expr>` que solo expande cuando la línea de comandos es el alias.
+
+### B13 — Opciones de ventana del split filtradas al global
+`vim.wo[win].x = v` sin `[0]` cambia también el valor global: las ventanas
+nuevas nacían con los folds y el resaltado del split, contra D11. Además
+`restore_main` restauraba `foldenable=false` como `true` (`false or true`). Fix:
+`vim.wo[win][0]` y restauración explícita. Tests:
+`tests/e2e/split_windows.lua` (W7).
+
+### B14 — Watcher del agente muerto, conflicto silencioso, latin1 corrupto
+Si el archivo desaparecía más de 150 ms (checkout), el `fs_event` no se
+re-armaba y quedaba registrado, así que nunca se reparaba. Un conflicto (cambios
+sin guardar) se descartaba sin aviso. `readfile()` en un archivo latin1 metía
+bytes inválidos al buffer. Fix: reintentos al re-armar y `detach` si no vuelve;
+aviso de conflicto una vez por buffer; los archivos no UTF-8 no se reconcilian.
+Tests: `tests/agent/watch_spec.lua`.
+
+### B15 — Borrado al final del archivo pintado encima de la última línea
+La vista inline anclaba las líneas borradas encima de `new_start`, recortado a la
+última línea: "d" borrada del final aparecía antes de "c". Fix: debajo de la
+última línea. Tests: `tests/views/inline_spec.lua`.

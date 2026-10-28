@@ -267,4 +267,3 @@ Un informe: tabla de plugins (directo / dependencia / candidato a sacar), con el
 motivo de cada uno y qué depende de qué. Se puede generar leyendo
 `lua/plugins/*.lua`. **Se puede hacer como tarea aparte cuando quieras** —
 avisá y armo el inventario real de tu config.
-</content>

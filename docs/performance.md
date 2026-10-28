@@ -8,12 +8,18 @@ evitan las fugas de memoria.
 
 | Cache | Dónde | Clave | Se libera |
 |---|---|---|---|
-| Raíz del repo | `core/git.lua` `root_cache` | directorio | manual (`git.clear_cache`); acotado por nº de dirs |
-| HEAD (inline) | `views/inline.lua` `_head_cache` | bufnr | `BufReadPost`, `BufDelete`, `BufWipeout` |
+| Raíz del repo | `core/git.lua` `root_cache` | directorio | `FocusGained` (`git.clear_cache`) |
+| Renames vs base | `core/git.lua` `rename_maps` | repo + base | `set_base`, `FocusGained` |
+| Raíz por cwd | `core/store.lua` `_root_by_cwd` | cwd | `DirChanged` (`clear_root_cache`) |
+| HEAD (inline) | `views/inline.lua` `_head_cache` | bufnr | `BufReadPost`, `BufDelete`, `BufWipeout`, `FocusGained` |
+| HEAD y hunks (scrollbar) | `views/scrollbar.lua` `_head`, `_hunks` | bufnr (+ changedtick) | `BufReadPost`, `BufDelete/Wipeout`, `base:changed`, `FocusGained` |
 | HEAD (split) | sesión `split._session.head` | por sesión | al cerrar/cambiar de archivo |
 | Ranking/color gutter | `comments/gutter.lua` `_cache` | bufnr | `comments:changed` (reset total), `BufDelete/Wipeout` |
 | statuscolumn previo | `comments/gutter.lua` `_prev` | winid | `WinClosed` |
-| Peek marks | `comments/mode.lua` `_peek_marks` | id de comentario | `BufDelete/Wipeout` (por buffer) |
+
+`FocusGained` vacía los caches de git y de HEAD porque un commit, `git mv` o
+`checkout` hechos fuera de Neovim los dejan viejos sin tocar los archivos
+abiertos (decisions.md D26).
 
 **Verificado:** abrir y cerrar 40 archivos deja **1 entrada** en cada cache (no
 40), y 1 solo buffer HEAD vivo (el scratch usa `bufhidden=wipe`).
@@ -58,4 +64,3 @@ editás), invalidado al recargar/cerrar el buffer.
 Archivo fuera del repo, archivo nuevo sin HEAD, buffer especial (neo-tree/nofile),
 archivo grande (pnpm-lock.yaml), 20 cambios de modo seguidos, 30 archivos en
 inline, cerrar el buffer con el split abierto, ida y vuelta entre archivos.
-</content>

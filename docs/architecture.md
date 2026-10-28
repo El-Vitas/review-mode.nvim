@@ -102,4 +102,3 @@ docs/                      -- esta documentación
 
 `<repo>/.git/review.nvim/comments.json` — fuera del código, nunca commiteado,
 por-repo, persistente. Todo el I/O de disco pasa por `core.store`.
-</content>

@@ -65,4 +65,3 @@ vim.api.nvim_set_hl(0, "ReviewDiffChange", { bg = "#2b3350" })
 vim.api.nvim_set_hl(0, "ReviewDiffDelText", { bg = "#54232f" })
 vim.api.nvim_set_hl(0, "ReviewDiffAddText", { bg = "#2c4a30" })
 ```
-</content>

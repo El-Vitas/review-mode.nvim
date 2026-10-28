@@ -78,4 +78,3 @@ archivo actual.
 
 Con la feature `agent` habilitada, el yank antepone una cabecera con el socket RPC
 y cada comentario lleva su token `` `id:<id>` `` (agent-ready).
-</content>

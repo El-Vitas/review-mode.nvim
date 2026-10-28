@@ -105,4 +105,3 @@ expone superficie de escritura remota). Ver el protocolo completo en
 - **Autoría / threading**: comentarios con `author`, respuestas ligadas con
   `reply_to`. `comments` los distingue visualmente (🤖 / violeta), muestra el hilo
   en el peek y el sufijo `↩N`; la lista filtra por autor y respondido/sin responder.
-</content>
