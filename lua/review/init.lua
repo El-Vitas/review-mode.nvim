@@ -8,12 +8,28 @@ function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
   local core = require("review.core")
   core.state.load()
-  -- Cargar features (auto-registro vía require). pcall para no romper durante
-  -- el build incremental cuando una feature todavía no existe.
+  -- Cargar features (auto-registro vía require). Una feature que falla al
+  -- cargar no tumba las demás, pero se avisa: si no, solo "faltaban comandos".
   for _, name in ipairs(FEATURES) do
-    pcall(require, "review.features." .. name)
+    local ok, err = pcall(require, "review.features." .. name)
+    if not ok then
+      vim.notify("review.nvim: feature '" .. name .. "' failed to load: " .. tostring(err), vim.log.levels.ERROR)
+    end
   end
   core.registry.setup(core, M.config)
+  -- Los comentarios son por repo: al cambiar de directorio con `:cd`, guardar
+  -- los del repo anterior y cargar los del nuevo.
+  local group = vim.api.nvim_create_augroup("ReviewState", { clear = true })
+  vim.api.nvim_create_autocmd("DirChanged", {
+    group = group,
+    callback = function() core.state.switch_root() end,
+  })
+  -- Al volver a Neovim, git pudo cambiar afuera (commit, `git mv`, `git init`):
+  -- los caches de raíz y de renames se recalculan en el próximo uso.
+  vim.api.nvim_create_autocmd("FocusGained", {
+    group = group,
+    callback = function() core.git.clear_cache() end,
+  })
 end
 
 --- Base efectiva para comparar (nil si HEAD/index, o el commit). Fuente única.

@@ -3,22 +3,23 @@ local events = require("review.core.events")
 
 local M = {}
 local list = {}
+-- Repo al que pertenece `list`: se fija al cargar y es donde se guarda. El cwd
+-- puede cambiar (`:cd`) y guardar en el repo del cwd mezclaba proyectos.
+local root
 
--- Id robusto: seed una vez con hrtime (evita colisiones cuando se agregan
--- muchos comentarios en el mismo segundo, ej. el agente en lote) + contador
--- monotónico + aleatorio.
-local _seeded = false
+-- Id único: segundos + contador monotónico + 3 bytes aleatorios del sistema.
+-- `vim.uv.random` no toca el generador global de `math.random`, que comparten
+-- todos los plugins de la sesión.
 local _counter = 0
 local function uuid()
-  if not _seeded then
-    math.randomseed((os.time() + (vim.loop.hrtime() % 0x7fffffff)))
-    _seeded = true
-  end
   _counter = _counter + 1
-  return string.format("%x-%x-%x", os.time(), _counter, math.random(0, 0xffffff))
+  local rnd = vim.uv.random(3) or ""
+  local r = 0
+  for i = 1, #rnd do r = r * 256 + rnd:byte(i) end
+  return string.format("%x-%x-%x", os.time(), _counter, r)
 end
 
-function M._reset() list = {} end
+function M._reset() list = {}; root = nil end
 function M.all() return list end
 
 function M.for_path(path)
@@ -86,7 +87,8 @@ function M.thread(id)
 end
 
 function M.load()
-  list = store.load().comments or {}
+  root = store.root_fn()
+  list = store.load(root).comments
   return list
 end
 
@@ -98,7 +100,26 @@ function M.persist()
     for k, v in pairs(c) do if k ~= "_extmark_id" then copy[k] = v end end
     clean[#clean+1] = copy
   end
-  return store.save({ version = 1, comments = clean })
+  local ok = store.save({ version = 1, comments = clean }, root or store.root_fn())
+  if not ok then
+    vim.notify_once("review.nvim: comments could not be saved (is the cwd inside a git repo?)",
+      vim.log.levels.WARN)
+  end
+  return ok
+end
+
+--- Cambia al repo del cwd actual si es otro (`:cd`): guarda los comentarios del
+--- repo anterior y carga los del nuevo. No-op si el repo no cambió.
+--- @return boolean switched
+function M.switch_root()
+  store.clear_root_cache()
+  local new_root = store.root_fn()
+  if new_root == root then return false end
+  if root then M.persist() end
+  root = new_root
+  list = store.load(root).comments
+  events.emit("comments:changed", {})
+  return true
 end
 
 return M

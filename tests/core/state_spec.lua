@@ -38,6 +38,30 @@ describe("core.state", function()
     state.add({ path = "b.ts", lnum = 1, text = "y" })
     assert.are.equal(1, #state.for_path("a.ts"))
   end)
+
+  it("persist guarda en el repo donde se cargó aunque el cwd cambie de repo", function()
+    local repo_a = store.root_fn()
+    state.load()
+    state.add({ path = "a.ts", lnum = 1, text = "de A" })
+    local repo_b = vim.fn.tempname(); vim.fn.mkdir(repo_b, "p")
+    store.root_fn = function() return repo_b end
+    assert.is_true(state.persist())
+    assert.are.equal(1, #store.load(repo_a).comments)
+    assert.are.equal(0, vim.fn.filereadable(store.path(repo_b)))
+  end)
+
+  it("switch_root guarda el repo anterior y carga el nuevo", function()
+    local repo_a = store.root_fn()
+    state.load()
+    state.add({ path = "a.ts", lnum = 1, text = "de A" })
+    local repo_b = vim.fn.tempname(); vim.fn.mkdir(repo_b, "p")
+    store.save({ version = 1, comments = { { id = "b1", path = "b.ts", lnum = 1, text = "de B" } } }, repo_b)
+    store.root_fn = function() return repo_b end
+    assert.is_true(state.switch_root())
+    assert.are.equal("de B", state.all()[1].text)
+    assert.are.equal("de A", store.load(repo_a).comments[1].text)
+    assert.is_false(state.switch_root()) -- mismo repo: no-op
+  end)
 end)
 
 describe("core.state threading + campos nuevos", function()
