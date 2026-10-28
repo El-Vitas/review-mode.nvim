@@ -315,6 +315,24 @@ Fix: al desarmar el par, si la ventana ya muestra otro archivo, se anota
 que puso el split: un `:diffthis` del usuario no se apaga. Tests:
 `tests/e2e/split_windows.lua` (W18-W20).
 
+### B21 — Un archivo nuevo respecto de la base no se marcaba
+Reportado el 2026-10-28 en FastCase con la base `efe1a41`: un archivo creado
+después de la base (ya commiteado) no cambiaba con ninguna vista y el árbol de
+archivos no le ponía letra. gitsigns lo pintaba entero en verde y la statusline
+lo contaba, así que cada superficie decía algo distinto.
+- `head_content` devuelve nil si el archivo no está en la base, e inline y la
+  barra de desplazamiento lo tomaban como "nada que comparar". Ahora usan
+  `git.base_lines`, que para un archivo nuevo devuelve `{}`: inline lo pinta
+  entero como agregado. Los archivos ignorados por git siguen sin marcarse.
+- Split no cambia: con un archivo nuevo sigue en una columna, porque una columna
+  de base vacía no aporta nada (regla BR-c517e19).
+- El árbol de archivos (`filesystem`) consultaba `git status` plano, y en la
+  base el archivo ya estaba commiteado. `neotree_exec` ahora pasa `git_base` a
+  los dos modos del árbol y `base:changed` re-aplica la base al que está a la
+  vista. El archivo muestra `N`. `<leader>e` midió 13-68 ms (antes 7-53 ms, con
+  el mismo ruido de la primera apertura).
+Tests: `tests/core/git_spec.lua` y `tests/views/inline_spec.lua`.
+
 ### D27 — Vista inline con debounce en insert
 `inline.render` recalcula el diff de todo el buffer: 40 ms por tecla con 10 000
 líneas muy cambiadas. En `TextChangedI` se agrupa con un solo temporizador de

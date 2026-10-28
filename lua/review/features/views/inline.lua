@@ -18,7 +18,8 @@ local function head_for(core, bufnr, relpath, root)
     if c == false then return nil end
     return c
   end
-  local head = core.git.head_content(relpath, root)
+  -- base_lines: un archivo nuevo respecto de la base se pinta entero como agregado.
+  local head = core.git.base_lines(relpath, root)
   M._head_cache[bufnr] = head or false
   return head
 end

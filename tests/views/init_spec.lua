@@ -8,6 +8,7 @@ local function fake_core()
       rel_path = function() return nil end, -- fuera de git: inline/split no-op seguro
       root = function() return nil end,
       head_content = function() return nil end,
+      base_lines = function() return nil end,
     },
     events = {
       emit = function(name, payload) table.insert(emitted, { name = name, payload = payload }) end,

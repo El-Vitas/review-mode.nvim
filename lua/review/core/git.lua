@@ -170,6 +170,23 @@ function M.head_content(relpath, root)
   return out
 end
 
+--- Contenido contra el que comparan las vistas: el de la base (`head_content`),
+--- o `{}` si el archivo NO existe en la base (es nuevo respecto de ella: todo su
+--- contenido es agregado). `nil` si está ignorado por git (node_modules, build…):
+--- eso no es contenido nuevo del proyecto y no se marca.
+--- @param relpath string
+--- @param root string|nil
+--- @return string[]|nil
+function M.base_lines(relpath, root)
+  local head = M.head_content(relpath, root)
+  if head then return head end
+  root = root or M.root()
+  if not root then return nil end
+  vim.fn.system({ "git", "-C", root, "check-ignore", "-q", "--", relpath })
+  if vim.v.shell_error == 0 then return nil end -- ignorado
+  return {}
+end
+
 function M.changed_files()
   local root = M.root()
   if not root then return {} end

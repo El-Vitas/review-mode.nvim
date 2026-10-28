@@ -25,7 +25,7 @@ end
 local function head_for(core, bufnr, rel, root)
   local c = _head[bufnr]
   if c ~= nil then return c or nil end
-  local lines = core.git.head_content(rel, root)
+  local lines = core.git.base_lines(rel, root) -- archivo nuevo: todo es agregado
   _head[bufnr] = lines or false
   return lines
 end

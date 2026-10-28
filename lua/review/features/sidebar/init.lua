@@ -107,15 +107,22 @@ function M.neotree_exec(exec)
       exec.reveal_file = nil
     end
   end
-  if exec.source == "git_status" then
+  -- Los DOS modos del árbol comparan contra la base de review: el de cambios
+  -- para decidir qué archivos lista, y el de archivos para las letras de estado
+  -- (N, M, D…). Si el de archivos usara `git status` plano, un archivo nuevo
+  -- respecto de la base pero ya commiteado aparecía sin letra, mientras gitsigns,
+  -- la statusline y las vistas lo marcaban como nuevo.
+  local source = exec.source or "filesystem"
+  if source == "git_status" or source == "filesystem" then
     local ok_mgr, mgr = pcall(require, "neo-tree.sources.manager")
-    if ok_mgr then sync_git_base(mgr.get_state("git_status")) end
+    if ok_mgr then sync_git_base(mgr.get_state(source)) end
     exec.git_base = effective_base() -- nil si HEAD/index → git status normal
-    command.execute(exec)
-  elseif focus_after and exec.action == "reveal" then
+  end
+  if source == "filesystem" and focus_after and exec.action == "reveal" then
     -- filesystem reveal: command.execute({reveal_file=…}) NO expande la ruta;
     -- el comando string `Neotree reveal` sí (revela el archivo ACTUAL, que es el
-    -- que <leader>E quiere revelar). Luego focus_node como red de seguridad.
+    -- que <leader>E quiere revelar). La base ya quedó en el state (sync_git_base).
+    -- Luego focus_node como red de seguridad.
     vim.cmd("Neotree reveal source=filesystem position=" .. (exec.position or "right"))
   else
     command.execute(exec)
@@ -222,12 +229,10 @@ function M.setup(core, opts)
     -- Al cambiar la base de comparación, si el árbol "changed" (git_status) está
     -- visible, re-aplicar la base y renavegar (misma vía única que todo lo demás).
     core.events.on("base:changed", function()
-      if not neotree_window_open() then return end
-      local ok_mgr, mgr = pcall(require, "neo-tree.sources.manager")
-      if not ok_mgr then return end
-      local st = mgr.get_state("git_status")
-      if not (st and st.tree) then return end -- solo si el source changed está activo
-      M.neotree_exec({ source = "git_status", action = "show", position = "right" })
+      -- Re-aplicar la base al modo del árbol que esté a la vista (changed o all).
+      local src = open_source()
+      if src ~= "git_status" and src ~= "filesystem" then return end
+      M.neotree_exec({ source = src, action = "show", position = "right" })
     end)
     M._subscribed = true
   end
