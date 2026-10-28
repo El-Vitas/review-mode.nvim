@@ -100,6 +100,22 @@ describe("comments.mode core", function()
     assert.is_false(mode._update_by_id(core, bufnr, "no-existe", "x"))
   end)
 
+  it("add_here ancla el rango: si cambian las líneas mientras se escribe, cae en la correcta", function()
+    vim.api.nvim_set_current_buf(bufnr)
+    vim.api.nvim_win_set_cursor(0, { 3, 0 }) -- "l3"
+    -- El popup (nui) toma el foco: se escribe en él y se confirma con <CR>.
+    mode.add_here(core)
+    vim.api.nvim_buf_set_lines(bufnr, 0, 0, false, { "nueva1", "nueva2" }) -- el agente inserta arriba
+    local popup_buf = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_lines(popup_buf, 0, -1, false, { "sobre l3" })
+    vim.cmd("stopinsert")
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "x", false)
+    local c = state.for_path("foo.ts")[1]
+    assert.is_truthy(c)
+    assert.are.equal(5, c.lnum) -- l3 bajó dos líneas
+    assert.are.equal("l3", c.anchor_text)
+  end)
+
   it("peek de un comentario de archivo abre la tarjeta sin error", function()
     state.add({ path = "foo.ts", file_level = true, text = "todo el archivo" })
     vim.api.nvim_set_current_buf(bufnr)

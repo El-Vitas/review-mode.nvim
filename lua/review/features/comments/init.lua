@@ -54,14 +54,23 @@ function M.setup(core, opts)
   -- `:colorscheme` limpia los highlights; re-definirlos al cambiar de tema.
   vim.api.nvim_create_autocmd("ColorScheme", { group = group, callback = ensure_hl })
 
+  -- ¿El buffer tiene comentarios? Si no, relocate/sync no pueden cambiar nada y
+  -- abrir o guardar el archivo no reescribe comments.json.
+  local function has_comments(buf)
+    local rel = core.git.rel_path(buf)
+    return rel ~= nil and #core.state.for_path(rel) > 0
+  end
+
   -- Al ABRIR el archivo (recién leído del disco): re-localizar por contenido
   -- (`anchor_text`) por si el archivo cambió mientras el buffer estaba cerrado
   -- (p. ej. el agente lo editó), y persistir la corrección. Luego renderizar.
   vim.api.nvim_create_autocmd("BufReadPost", {
     group = group,
     callback = function(args)
-      render.relocate(core, args.buf)
-      core.state.persist()
+      if has_comments(args.buf) then
+        render.relocate(core, args.buf)
+        core.state.persist()
+      end
       render.render(core, args.buf)
     end,
   })
@@ -75,6 +84,7 @@ function M.setup(core, opts)
   vim.api.nvim_create_autocmd("BufWritePost", {
     group = group,
     callback = function(args)
+      if not has_comments(args.buf) then return end
       render.sync_positions(core, args.buf)
       core.state.persist()
     end,

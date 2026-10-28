@@ -2,6 +2,9 @@ local render = require("review.features.comments.render")
 
 local M = {}
 
+-- Extmarks temporales del rango de un comentario que se está escribiendo.
+local pending_ns = vim.api.nvim_create_namespace("review_pending_comment")
+
 local function clamp(bufnr, lnum)
   local last = vim.api.nvim_buf_line_count(bufnr)
   if last < 1 then return 1 end
@@ -214,10 +217,22 @@ function M.add_here(core, opts)
       and string.format(" Comment L%d-%d ", math.min(lnum, end_lnum), math.max(lnum, end_lnum))
       or string.format(" Comment L%d ", lnum)
 
+  -- El rango se ancla con extmarks mientras se escribe: si el archivo cambia
+  -- en el medio (el agente inserta líneas arriba), el comentario cae en la
+  -- línea correcta y no en el número viejo.
+  local lo, hi = math.min(lnum, end_lnum), math.max(lnum, end_lnum)
+  vim.api.nvim_buf_clear_namespace(bufnr, pending_ns, 0, -1) -- restos de un popup cancelado
+  local m_lo = vim.api.nvim_buf_set_extmark(bufnr, pending_ns, lo - 1, 0, {})
+  local m_hi = vim.api.nvim_buf_set_extmark(bufnr, pending_ns, hi - 1, 0, {})
   open_popup({
     title = rango,
     on_save = function(text)
-      M._add(core, bufnr, lnum, end_lnum, text)
+      if not vim.api.nvim_buf_is_valid(bufnr) then return end
+      local p_lo = vim.api.nvim_buf_get_extmark_by_id(bufnr, pending_ns, m_lo, {})
+      local p_hi = vim.api.nvim_buf_get_extmark_by_id(bufnr, pending_ns, m_hi, {})
+      vim.api.nvim_buf_del_extmark(bufnr, pending_ns, m_lo)
+      vim.api.nvim_buf_del_extmark(bufnr, pending_ns, m_hi)
+      M._add(core, bufnr, (p_lo[1] or lo - 1) + 1, (p_hi[1] or hi - 1) + 1, text)
     end,
   })
 end
