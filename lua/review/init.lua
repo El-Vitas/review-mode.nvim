@@ -25,11 +25,17 @@ function M.setup(opts)
     callback = function() core.state.switch_root() end,
   })
   -- Al volver a Neovim, git pudo cambiar afuera (commit, `git mv`, `git init`):
-  -- los caches de raíz y de renames se recalculan en el próximo uso.
+  -- el cache de raíces se recalcula en el próximo uso, y los renames se
+  -- recalculan en segundo plano solo si git cambió.
   vim.api.nvim_create_autocmd("FocusGained", {
     group = group,
-    callback = function() core.git.clear_cache() end,
+    callback = function()
+      core.git.clear_cache()
+      core.git.prefetch_renames()
+    end,
   })
+  -- El precálculo al arrancar lo lanza la feature base, después de restaurar.
+  core.events.on("base:changed", function() core.git.prefetch_renames() end)
 end
 
 --- Base efectiva para comparar (nil si HEAD/index, o el commit). Fuente única.

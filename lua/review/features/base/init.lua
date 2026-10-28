@@ -250,7 +250,18 @@ function M.setup(core, opts)
     -- alineamos gitsigns (que sí necesita el change_base explícito).
     M.apply_gitsigns(ref)
   end
-  vim.api.nvim_create_autocmd("User", { pattern = "VeryLazy", once = true, callback = function() vim.schedule(restore) end })
+  vim.api.nvim_create_autocmd("User", {
+    pattern = "VeryLazy",
+    once = true,
+    callback = function()
+      vim.schedule(function()
+        restore()
+        -- Con la base ya fijada (restaurada o HEAD), calcular sus renames en
+        -- segundo plano: el primer archivo nuevo que se abra no los espera.
+        core.git.prefetch_renames()
+      end)
+    end,
+  })
 end
 
 require("review.core").registry.register({ name = "base", setup = M.setup })

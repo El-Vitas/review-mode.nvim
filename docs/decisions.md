@@ -197,7 +197,8 @@ comentario que muestra, por id.
 el HEAD o los renames sin tocar los archivos abiertos, y los caches (raíz por
 directorio, mapa de renames, HEAD de inline y scrollbar) quedaban viejos: la
 vista seguía marcando como cambio lo ya commiteado. En `FocusGained` se vacían
-y se reaplica la vista. Costo: un `git show` por buffer visible al volver.
+y se reaplica la vista. Costo: un `git show` por buffer visible al volver. El
+mapa de renames dejó de vaciarse en B22: se recalcula solo si git cambió.
 
 ## Revisión de calidad (2026-10-28)
 
@@ -332,6 +333,27 @@ lo contaba, así que cada superficie decía algo distinto.
   vista. El archivo muestra `N`. `<leader>e` midió 13-68 ms (antes 7-53 ms, con
   el mismo ruido de la primera apertura).
 Tests: `tests/core/git_spec.lua` y `tests/views/inline_spec.lua`.
+
+### B22 — Abrir un archivo nuevo respecto de la base trababa hasta 700 ms
+Reportado el 2026-10-28 ("a veces demora mucho al cambiar de archivo").
+`rename_source` necesita el mapa de renombrados de la base, y armarlo cuesta dos
+`git diff -M` de ~115 ms cada uno en FastCase contra `efe1a41`. Se corrían de
+forma sincrónica la primera vez que se abría un archivo que no existe en la base,
+y `FocusGained` tiraba el mapa, así que al volver del navegador se pagaban otra
+vez: 272–708 ms.
+- El mapa ya no se tira al volver el foco. Lleva una huella (`repo_stamp`): mtime
+  y tamaño del index, de HEAD y del reflog de HEAD, leídos con `fs_stat` sin
+  lanzar procesos. Un `git mv`, un commit, un checkout o un reset hechos afuera
+  la cambian, y el mapa se recalcula. Editar archivos no la cambia, ni hace falta,
+  porque un rename sin `git add` no es rename para git.
+- `prefetch_renames` lanza los diffs en segundo plano (`vim.system` con callback)
+  después de restaurar la base en el arranque, al cambiar de base y al volver el
+  foco si la huella cambió. `rename_source` usa el mapa si está listo; si el
+  cálculo está en curso, espera a esos mismos procesos en vez de lanzar otros.
+- Resultado: abrir `pagination.constants.ts` por primera vez pasó de 319–493 ms
+  a 12–25 ms, y al volver del navegador de hasta 708 ms a 8–10 ms.
+Tests: `tests/core/git_spec.lua` (huella, foco sin cambios, `git mv` y commit
+hechos afuera, cálculo reusado).
 
 ### D27 — Vista inline con debounce en insert
 `inline.render` recalcula el diff de todo el buffer: 40 ms por tecla con 10 000

@@ -3,8 +3,10 @@ local store = require("review.core.store")
 local M = {}
 
 -- Mapas de renames por repo y base (declarado arriba para que set_base lo vea).
--- Clave "root\0base" → { [destino] = origen }. Un solo `git diff` por par
--- repo/base para todos los archivos, en vez de dos por cada archivo nuevo.
+-- Clave "root\0base" → { map = { [destino] = origen }, stamp = huella }. Un solo
+-- `git diff` por par repo/base para todos los archivos, en vez de dos por cada
+-- archivo nuevo. Contra una base lejana ese diff tarda cientos de ms, así que el
+-- mapa no se tira al volver el foco: se recalcula solo si cambió la huella.
 local rename_maps = {}
 
 -- Base de comparación de review (contra qué se comparan las vistas / cambios).
@@ -41,49 +43,92 @@ end
 -- Agrega a `map` los renames/copias de la salida de
 -- `git diff -M --name-status -z <...>` como { [destino] = origen }, sin pisar
 -- destinos que ya estén (el primer diff que se escanea tiene prioridad).
--- vim.fn.system() mapea los NUL a SOH (\1), por eso se separa por "\1" (igual
--- que neo-tree).
-local function scan_renames(args, map)
-  local out = vim.fn.system(args)
-  if vim.v.shell_error ~= 0 then return end
-  local parts = vim.split(out, "\1", { plain = true })
+local function scan_renames(out, map)
+  local parts = vim.split(out, "\0", { plain = true })
   local i = 1
   while i <= #parts and parts[i] ~= "" do
     local st = parts[i]
-    if st:match("^[RC]") then -- rename/copy: <status>\1<old>\1<new>
+    if st:match("^[RC]") then -- rename/copy: <status>\0<old>\0<new>
       local old, new = parts[i + 1], parts[i + 2]
       if new and map[new] == nil then map[new] = old end
       i = i + 3
-    else -- resto: <status>\1<path>
+    else -- resto: <status>\0<path>
       i = i + 2
     end
   end
 end
 
+-- Cálculos de renames en curso, por la misma clave que `rename_maps`.
+local inflight = {}
+
+-- Lanza (o reusa) el cálculo en segundo plano del mapa de renames de root/base.
+-- Detectar renames le cuesta a git ~115 ms por diff en un repo grande contra una
+-- base lejana; corriendo aparte, el mapa suele estar listo antes de que se abra
+-- el primer archivo que lo necesita. Devuelve la entrada vigente o el job.
+local function renames_job(root, base)
+  local key = root .. "\0" .. base
+  local stamp = M.repo_stamp(root)
+  local entry = rename_maps[key]
+  if entry and entry.stamp == stamp then return entry end
+  local job = inflight[key]
+  if job and job.stamp == stamp then return job end
+
+  -- 1) renames COMMITEADOS (base..HEAD): detección fiable aunque el archivo se
+  --    haya editado después (el umbral -M se mide sobre el commit, no el working
+  --    tree). 2) después, renames sin commitear (base vs working).
+  -- Con la base en el index (":"): index vs HEAD.
+  local diffs = base == ":" and { { "--cached" } } or { { base, "HEAD", "--" }, { base, "--" } }
+  job = { stamp = stamp, outs = {}, procs = {}, left = #diffs }
+  inflight[key] = job
+  local function finish()
+    if job.done then return end
+    job.done = true
+    local map = {}
+    for i = 1, #diffs do scan_renames(job.outs[i] or "", map) end
+    job.map = map
+    if inflight[key] == job then
+      inflight[key] = nil
+      rename_maps[key] = { map = map, stamp = job.stamp }
+    end
+  end
+  job.finish = finish
+  for i, args in ipairs(diffs) do
+    local cmd = vim.list_extend({ "git", "-C", root, "diff", "-M", "--name-status", "-z" }, args)
+    local ok, proc = pcall(vim.system, cmd, { text = false }, function(res)
+      job.outs[i] = res.code == 0 and res.stdout or ""
+      job.left = job.left - 1
+      if job.left == 0 then vim.schedule(finish) end
+    end)
+    if ok then job.procs[i] = proc else job.outs[i] = ""; job.left = job.left - 1 end
+  end
+  if job.left == 0 then finish() end
+  return job
+end
+
+--- Calcula en segundo plano los renames de la base actual para el repo `root`
+--- (default: el del cwd), si no están ya al día. No bloquea.
+--- @param root string|nil
+function M.prefetch_renames(root)
+  root = root or M.root()
+  if root then renames_job(root, M.base_ref) end
+end
+
 --- Si `relpath` es el DESTINO de un rename/copy vs la base, devuelve su path
 --- ORIGEN (el que existe en la base). Si no, nil. Público para que otras
 --- superficies (gitsigns) traten los renombrados de forma CONSISTENTE. `base`
---- opcional (default `M.base_ref`).
+--- opcional (default `M.base_ref`). Si el mapa no está listo, espera al cálculo
+--- en curso (o lo lanza) en vez de correr otro.
 function M.rename_source(relpath, root, base)
   if not root then return nil end
-  base = base or M.base_ref
-  local key = root .. "\0" .. base
-  local map = rename_maps[key]
-  if not map then
-    map = {}
-    if base == ":" then
-      -- index (staged) vs HEAD.
-      scan_renames({ "git", "-C", root, "diff", "-M", "--name-status", "-z", "--cached" }, map)
-    else
-      -- 1) renames COMMITEADOS (base..HEAD): detección fiable aunque el archivo
-      --    se haya editado después (el umbral -M se mide sobre el commit, no el
-      --    working tree). 2) después, renames sin commitear (base vs working).
-      scan_renames({ "git", "-C", root, "diff", "-M", "--name-status", "-z", base, "HEAD", "--" }, map)
-      scan_renames({ "git", "-C", root, "diff", "-M", "--name-status", "-z", base, "--" }, map)
+  local job = renames_job(root, base or M.base_ref)
+  if not job.map then
+    for i, p in pairs(job.procs) do
+      local ok, res = pcall(p.wait, p)
+      if job.outs[i] == nil then job.outs[i] = (ok and res.code == 0 and res.stdout) or "" end
     end
-    rename_maps[key] = map
+    job.finish()
   end
-  return map[relpath]
+  return job.map[relpath]
 end
 local rename_source = M.rename_source
 
@@ -92,13 +137,37 @@ local rename_source = M.rename_source
 -- etc.). La raíz de un directorio es estable, así que la cacheamos: string =
 -- raíz encontrada, false = ese dir no está en un repo (usar fallback por cwd).
 local root_cache = {}
+-- Carpeta .git de cada raíz (en un worktree no es `<raíz>/.git`).
+local gitdir_cache = {}
 
---- Limpia los caches de raíces y de renames. Se llama al volver el foco a
---- Neovim, porque un `git mv`, un commit o un `git init` hechos afuera los dejan
---- desactualizados.
+--- Huella barata del estado del repo, sin lanzar procesos después de la primera
+--- vez: mtime y tamaño del index, de HEAD y del reflog de HEAD. Un `git mv`
+--- reescribe el index; un commit, un checkout o un reset agregan una línea al
+--- reflog. Editar archivos no toca nada de eso, y tampoco cambia los renames (un
+--- rename sin `git add` no es rename para git).
+--- @param root string
+--- @return string
+function M.repo_stamp(root)
+  local dir = gitdir_cache[root]
+  if dir == nil then
+    local out = vim.fn.systemlist({ "git", "-C", root, "rev-parse", "--absolute-git-dir" })
+    dir = (vim.v.shell_error == 0 and out[1]) or false
+    gitdir_cache[root] = dir
+  end
+  if not dir then return "" end
+  local function mt(p)
+    local st = vim.uv.fs_stat(p)
+    return st and (st.mtime.sec .. "." .. st.mtime.nsec .. ":" .. st.size) or "-"
+  end
+  return mt(dir .. "/index") .. "|" .. mt(dir .. "/HEAD") .. "|" .. mt(dir .. "/logs/HEAD")
+end
+
+--- Limpia el cache de raíces. Se llama al volver el foco a Neovim, porque un
+--- `git init` o un clon hechos afuera lo dejan desactualizado. Los renames no se
+--- tiran: `rename_source` los recalcula solo si cambió `repo_stamp`.
 function M.clear_cache()
   root_cache = {}
-  rename_maps = {}
+  gitdir_cache = {}
 end
 
 --- Raíz del repo. Si se pasa `bufnr`, la resuelve desde el DIRECTORIO DEL

@@ -9,7 +9,7 @@ evitan las fugas de memoria.
 | Cache | Dónde | Clave | Se libera |
 |---|---|---|---|
 | Raíz del repo | `core/git.lua` `root_cache` | directorio | `FocusGained` (`git.clear_cache`) |
-| Renames vs base | `core/git.lua` `rename_maps` | repo + base | `set_base`, `FocusGained` |
+| Renames vs base | `core/git.lua` `rename_maps` | repo + base (+ huella `repo_stamp`) | `set_base`; se recalcula en segundo plano si cambia la huella (B22) |
 | Raíz por cwd | `core/store.lua` `_root_by_cwd` | cwd | `DirChanged` (`clear_root_cache`) |
 | HEAD (inline) | `views/inline.lua` `_head_cache` | bufnr | `BufReadPost`, `BufDelete`, `BufWipeout`, `FocusGained` |
 | HEAD y hunks (scrollbar) | `views/scrollbar.lua` `_head`, `_hunks` | bufnr (+ changedtick) | `BufReadPost`, `BufDelete/Wipeout`, `base:changed`, `FocusGained` |
@@ -17,9 +17,11 @@ evitan las fugas de memoria.
 | Ranking/color gutter | `comments/gutter.lua` `_cache` | bufnr | `comments:changed` (reset total), `BufDelete/Wipeout` |
 | statuscolumn previo | `comments/gutter.lua` `_prev` | winid | `WinClosed` |
 
-`FocusGained` vacía los caches de git y de HEAD porque un commit, `git mv` o
-`checkout` hechos fuera de Neovim los dejan viejos sin tocar los archivos
-abiertos (decisions.md D26).
+`FocusGained` vacía la raíz y los HEAD porque un commit, `git mv` o `checkout`
+hechos fuera de Neovim los dejan viejos sin tocar los archivos abiertos
+(decisions.md D26). El mapa de renames no se vacía: cuesta dos `git diff -M` de
+~115 ms en un repo grande, así que solo se recalcula, en segundo plano, si cambió
+la huella del index, de HEAD o del reflog (B22).
 
 **Verificado:** abrir y cerrar 40 archivos deja **1 entrada** en cada cache (no
 40), y 1 solo buffer HEAD vivo (el scratch usa `bufhidden=wipe`).

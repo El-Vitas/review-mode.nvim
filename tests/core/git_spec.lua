@@ -47,6 +47,63 @@ describe("core.git contra un repo real", function()
     assert.is_nil(git.rename_source("no-existe.ts", root))
   end)
 
+  it("los renames sobreviven a recuperar el foco y se recalculan si git cambió", function()
+    local root, g = make_repo()
+    vim.fn.writefile(lines, root .. "/a.ts")
+    vim.fn.writefile(lines, root .. "/b.ts")
+    g("add", "."); g("commit", "-qm", "base")
+    local base = vim.trim(vim.fn.system({ "git", "-C", root, "rev-parse", "HEAD" }))
+    g("mv", "a.ts", "a2.ts"); g("commit", "-qm", "rename a")
+    git.set_base(base)
+    assert.are.equal("a.ts", git.rename_source("a2.ts", root))
+
+    -- Recuperar el foco sin cambios en git: no se vuelve a correr git diff.
+    local orig, diffs = vim.system, 0
+    vim.system = function(args, ...)
+      if type(args) == "table" and args[4] == "diff" then diffs = diffs + 1 end
+      return orig(args, ...)
+    end
+    git.clear_cache()
+    git.prefetch_renames(root)
+    assert.are.equal("a.ts", git.rename_source("a2.ts", root))
+    vim.system = orig
+    assert.are.equal(0, diffs)
+
+    -- Un `git mv` hecho afuera (cambia el index): el mapa se recalcula.
+    g("mv", "b.ts", "b2.ts")
+    git.clear_cache()
+    assert.are.equal("b.ts", git.rename_source("b2.ts", root))
+    -- Un commit hecho afuera, sin nada nuevo en el index, también cambia la huella.
+    local before = git.repo_stamp(root)
+    g("commit", "-qm", "rename b")
+    git.clear_cache()
+    assert.are_not.equal(before, git.repo_stamp(root))
+    assert.are.equal("b.ts", git.rename_source("b2.ts", root))
+  end)
+
+  it("prefetch_renames calcula en segundo plano y rename_source reusa ese cálculo", function()
+    local root, g = make_repo()
+    vim.fn.writefile(lines, root .. "/a.ts")
+    g("add", "."); g("commit", "-qm", "base")
+    local base = vim.trim(vim.fn.system({ "git", "-C", root, "rev-parse", "HEAD" }))
+    g("mv", "a.ts", "a2.ts"); g("commit", "-qm", "rename a")
+    git.set_base(base)
+
+    local orig, diffs = vim.system, 0
+    vim.system = function(args, ...)
+      if type(args) == "table" and args[4] == "diff" then diffs = diffs + 1 end
+      return orig(args, ...)
+    end
+    git.prefetch_renames(root) -- lanza los dos diffs y vuelve sin esperar
+    git.prefetch_renames(root) -- ya en curso: no lanza otros
+    assert.are.equal(2, diffs)
+    -- Antes de que terminen: espera a esos mismos procesos.
+    assert.are.equal("a.ts", git.rename_source("a2.ts", root))
+    vim.system = orig
+    assert.are.equal(2, diffs)
+    assert.is_nil(git.rename_source("no-existe.ts", root))
+  end)
+
   it("head_content devuelve nil para un archivo nuevo y normaliza CRLF", function()
     local root, g = make_repo()
     vim.fn.writefile({ "a\r", "b\r" }, root .. "/crlf.txt", "b")
