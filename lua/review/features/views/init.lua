@@ -137,12 +137,28 @@ function M.setup(core, opts)
 
   -- Re-render en vivo al editar. Inline: repinta. Split: re-sincroniza para
   -- abrir/cerrar las 2 columnas según aparezcan/desaparezcan cambios vs HEAD.
+  -- En insert (TextChangedI) el repintado inline se agrupa con un solo
+  -- temporizador: recalcula el diff de todo el buffer, y con 10 000 líneas muy
+  -- cambiadas son 40 ms por tecla. Fuera de insert (TextChanged) es inmediato.
+  local inline_timer = assert(vim.uv.new_timer())
+  local inline_buf
+  local render_pending = vim.schedule_wrap(function()
+    if inline_buf and vim.api.nvim_buf_is_valid(inline_buf) and M.mode == "inline" then
+      pcall(inline.render, core, inline_buf)
+    end
+  end)
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
     group = group,
     callback = function(a)
       if vim.bo[a.buf].buftype ~= "" then return end
       if M.mode == "inline" then
-        pcall(inline.render, core, a.buf)
+        inline_timer:stop()
+        if a.event == "TextChangedI" then
+          inline_buf = a.buf
+          inline_timer:start(80, 0, render_pending)
+        else
+          pcall(inline.render, core, a.buf)
+        end
       elseif M.mode == "split" and a.event == "TextChanged" then
         -- Solo al TERMINAR un cambio (no por cada tecla en insert): el diff
         -- nativo ya se actualiza live; esto solo detecta si volvió a HEAD.
