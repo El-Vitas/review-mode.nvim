@@ -47,4 +47,32 @@ describe("agent.watch", function()
     assert.is_true(reconciled)
     assert.are.same({ "l1", "l2", "l3", "l4" }, vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
   end)
+
+  it("sobrevive a que el archivo se borre y vuelva a crearse un rato después", function()
+    watch.attach(core, bufnr)
+    os.remove(path)
+    vim.wait(300, function() return false end)
+    vim.fn.writefile({ "nuevo" }, path)
+    vim.wait(1500, function() return vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)[1] == "nuevo" end)
+    assert.are.same({ "nuevo" }, vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
+    -- y sigue vigilando después
+    vim.fn.writefile({ "otra vez" }, path)
+    vim.wait(1500, function() return vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)[1] == "otra vez" end)
+    assert.are.same({ "otra vez" }, vim.api.nvim_buf_get_lines(bufnr, 0, -1, false))
+  end)
+
+  it("con cambios sin guardar no pisa el buffer y avisa una vez", function()
+    watch.attach(core, bufnr)
+    vim.api.nvim_buf_set_lines(bufnr, 0, 1, false, { "mio" })
+    local notified = 0
+    local orig = vim.notify
+    vim.notify = function(msg) if msg:find("changed on disk") then notified = notified + 1 end end
+    vim.fn.writefile({ "del agente" }, path)
+    vim.wait(800, function() return notified > 0 end)
+    vim.fn.writefile({ "del agente 2" }, path)
+    vim.wait(400, function() return false end)
+    vim.notify = orig
+    assert.are.equal("mio", vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1])
+    assert.are.equal(1, notified)
+  end)
 end)

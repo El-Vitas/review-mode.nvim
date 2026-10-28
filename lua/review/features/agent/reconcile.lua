@@ -15,6 +15,12 @@ function M.patch(core, bufnr)
   -- Conflicto: hay ediciones sin guardar → NO pisar (ver roadmap §1.3.3).
   if vim.bo[bufnr].modified then return "conflict" end
 
+  -- `readfile()` devuelve los bytes del disco sin convertir, pero el buffer ya
+  -- está en UTF-8: parchear un archivo latin1 metía bytes inválidos en el buffer
+  -- y el próximo :w escribía basura. Esos archivos no se reconcilian solos.
+  local fenc = vim.bo[bufnr].fileencoding
+  if fenc ~= "" and fenc ~= "utf-8" then return "skipped" end
+
   local ok, disk = pcall(vim.fn.readfile, name)
   if not ok or type(disk) ~= "table" then return "skipped" end
 
@@ -23,7 +29,7 @@ function M.patch(core, bufnr)
   local b = table.concat(disk, "\n")
   if a == b then return "identical" end
 
-  local hunks = vim.diff(a, b, { result_type = "indices" })
+  local hunks = (vim.text.diff or vim.diff)(a, b, { result_type = "indices" })
   if not hunks or #hunks == 0 then return "identical" end
 
   -- Aplicar de ABAJO hacia arriba para no invalidar los índices de los hunks

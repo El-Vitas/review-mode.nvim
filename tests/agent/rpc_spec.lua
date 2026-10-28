@@ -87,6 +87,52 @@ describe("features.agent.rpc", function()
     assert.are.equal(1, #state.all())
   end)
 
+  it("add() rechaza tipos inválidos sin persistir nada", function()
+    local bad = {
+      { path = "a.ts", lnum = "5", text = "x" },
+      { path = "a.ts", lnum = { 1 }, text = "x" },
+      { path = "a.ts", lnum = -5, text = "x" },
+      { path = "a.ts", lnum = 1.5, text = "x" },
+      { path = "a.ts", lnum = 3, end_lnum = 1, text = "x" },
+      { path = "a.ts", lnum = 1, text = { 1 } },
+      { path = "a.ts", lnum = 1, text = "   " },
+      { path = "/etc/passwd", lnum = 1, text = "x" },
+      { path = "../../etc/os-release", lnum = 1, text = "x" },
+      { path = "a.ts", lnum = 1, text = "x", author = "user" },
+    }
+    for _, d in ipairs(bad) do assert.are.equal("", rpc.add(core, d)) end
+    assert.are.equal("", rpc.add(core, '{"path":"a.ts","lnum":null,"text":"x"}'))
+    assert.are.equal(0, #state.all())
+  end)
+
+  it("add() ignora campos que no son del contrato (id, resolved, reply_to)", function()
+    local id = rpc.add(core, { path = "a.ts", lnum = 1, text = "x", id = "fijo", resolved = true, _extmark_id = 9 })
+    local c = state.by_id(id)
+    assert.are_not.equal("fijo", id)
+    assert.is_false(c.resolved)
+    assert.is_nil(c._extmark_id)
+  end)
+
+  it("add() acepta un comentario de archivo y un autor de agente propio", function()
+    local id = rpc.add(core, { path = "a.ts", file_level = true, text = "todo el archivo", author = "claude" })
+    assert.is_true(state.by_id(id).file_level)
+    assert.are.equal("claude", state.by_id(id).author)
+  end)
+
+  it("context() acota el rango a 500 líneas", function()
+    local lines = {}
+    for i = 1, 1000 do lines[i] = "l" .. i end
+    vim.fn.writefile(lines, root .. "/largo.ts")
+    local id = rpc.add(core, { path = "largo.ts", lnum = 1, end_lnum = 9000000, text = "x" })
+    local ctx = vim.json.decode(rpc.context(core, id))
+    assert.are.equal(500, #ctx.lines)
+  end)
+
+  it("list() con un filtro JSON roto no devuelve todo", function()
+    state.add({ path = "a.ts", lnum = 1, text = "x" })
+    assert.are.equal("[]", rpc.list(core, "{ roto"))
+  end)
+
   it("is_modified refleja el estado del buffer", function()
     local path = root .. "/m.ts"
     vim.fn.writefile({ "a" }, path)
