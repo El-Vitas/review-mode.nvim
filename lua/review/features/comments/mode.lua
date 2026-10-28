@@ -10,17 +10,26 @@ local function clamp(bufnr, lnum)
   return lnum
 end
 
+-- El comentario MÁS ESPECÍFICO que cubre `lnum`: el de rango más chico y, ante
+-- empate, el que empieza más abajo. Es el mismo que muestra el peek, así que
+-- editar, resolver o borrar actúa sobre el comentario que se está viendo aunque
+-- haya otros solapados. Respuestas y comentarios de ARCHIVO no son objetivo
+-- directo del cursor por línea (los file_level ni siquiera tienen lnum).
 local function find_at(core, rel, lnum)
+  local best, best_span
   for _, c in ipairs(core.state.for_path(rel)) do
-    -- Respuestas y comentarios de ARCHIVO no son objetivo directo del cursor
-    -- por línea (los file_level ni siquiera tienen lnum).
     if not c.reply_to and not c.file_level then
       local lo = math.min(c.lnum, c.end_lnum or c.lnum)
       local hi = math.max(c.lnum, c.end_lnum or c.lnum)
-      if lnum >= lo and lnum <= hi then return c end
+      if lnum >= lo and lnum <= hi then
+        local span = hi - lo
+        if not best or span < best_span or (span == best_span and lo > best.lnum) then
+          best, best_span = c, span
+        end
+      end
     end
   end
-  return nil
+  return best
 end
 
 local function is_last_line(bufnr, lnum)
@@ -116,6 +125,19 @@ function M._update_at(core, bufnr, lnum, text)
   render.render(core, bufnr)
   core.state.persist()
   return ok
+end
+
+--- Actualiza el texto del comentario `id`. Lo usan los popups de edición: el
+--- comentario se elige al abrir el popup, y mientras se escribe pueden cambiar
+--- las líneas (el agente edita el archivo) o aparecer otro comentario solapado.
+--- @return boolean true si actualizó
+function M._update_by_id(core, bufnr, id, text)
+  if text == nil or vim.trim(text) == "" then return false end
+  local ok = core.state.update(id, { text = text })
+  if not ok then return false end
+  if vim.api.nvim_buf_is_valid(bufnr) then render.render(core, bufnr) end
+  core.state.persist()
+  return true
 end
 
 -- Popup de edición de texto multi-línea, reutilizado por add/edit. Arranca en
@@ -226,45 +248,32 @@ function M.add_file_here(core)
   })
 end
 
+--- Comentario sobre el que actuar desde el cursor del buffer actual, y el
+--- buffer. Si no hay ninguno, avisa y devuelve nil.
+--- @return integer|nil bufnr, table|nil comment
+local function target_here(core)
+  local bufnr = vim.api.nvim_get_current_buf()
+  local rel = core.git.rel_path(bufnr)
+  if not rel then return nil end
+  local c = target_at(core, rel, bufnr, clamp(bufnr, vim.fn.line(".")))
+  if not c then
+    vim.notify("review.nvim: no comment on this line", vim.log.levels.INFO)
+    return nil
+  end
+  return bufnr, c
+end
+
 --- Edita el comentario que cubre la línea actual: abre el popup pre-cargado con
 --- su texto. Si no hay comentario en la línea, avisa y no hace nada.
 function M.edit_here(core)
-  local bufnr = vim.api.nvim_get_current_buf()
-  local rel = core.git.rel_path(bufnr)
-  if not rel then return end
-  local lnum = clamp(bufnr, vim.fn.line("."))
-  local c = target_at(core, rel, bufnr, lnum)
-  if not c then
-    vim.notify("review.nvim: no comment on this line", vim.log.levels.INFO)
-    return
-  end
+  local bufnr, c = target_here(core)
+  if not c then return end
   open_popup({
     title = c.file_level and " Edit file comment " or " Edit comment ",
     initial = c.text or "",
     start_insert = false,
-    on_save = function(text)
-      M._update_at(core, bufnr, lnum, text) -- re-resuelve el mismo target por línea
-    end,
+    on_save = function(text) M._update_by_id(core, bufnr, c.id, text) end,
   })
-end
-
--- El comentario MÁS ESPECÍFICO que cubre `lnum` (el de rango más chico; ante
--- empate, el que empieza más abajo). Así el peek muestra UN comentario, no todos.
-local function best_at(core, rel, lnum)
-  local best, best_span
-  for _, c in ipairs(core.state.for_path(rel)) do
-    if not c.reply_to and not c.file_level then
-      local lo = math.min(c.lnum, c.end_lnum or c.lnum)
-      local hi = math.max(c.lnum, c.end_lnum or c.lnum)
-      if lnum >= lo and lnum <= hi then
-        local span = hi - lo
-        if not best or span < best_span or (span == best_span and lo > best.lnum) then
-          best, best_span = c, span
-        end
-      end
-    end
-  end
-  return best
 end
 
 -- Namespace de los extmarks de highlight DENTRO de la tarjeta flotante del peek.
@@ -370,8 +379,14 @@ local function open_peek_float(core, origin_buf, c)
     if m.author and m.author ~= "user" then theirs[#theirs + 1] = m else mine[#mine + 1] = m end
   end
 
-  local range = (c.end_lnum and c.end_lnum ~= c.lnum)
-      and ("L" .. c.lnum .. "–" .. c.end_lnum) or ("L" .. c.lnum)
+  local range
+  if c.file_level or not c.lnum then
+    range = "file"
+  elseif c.end_lnum and c.end_lnum ~= c.lnum then
+    range = "L" .. c.lnum .. "–" .. c.end_lnum
+  else
+    range = "L" .. c.lnum
+  end
 
   -- UNA sola tarjeta: sección "user" + divisor + sección "claude". Robusto
   -- (un solo flotante bien posicionado, sin apilar ventanas frágiles).
@@ -454,7 +469,7 @@ local function open_peek_float(core, origin_buf, c)
   vim.keymap.set("n", "e", function()
     close()
     open_popup({ title = " Edit comment ", initial = c.text or "", start_insert = false,
-      on_save = function(text) M._update_at(core, origin_buf, c.lnum, text) end })
+      on_save = function(text) M._update_by_id(core, origin_buf, c.id, text) end })
   end, km)
 
   -- Cerrar al salir de la ventana del float.
@@ -469,16 +484,8 @@ end
 --- centrada con el hilo. Solo puede haber un peek abierto: abrir otro cierra el
 --- anterior (open_peek_float ya cierra el previo al inicio).
 function M.peek_here(core)
-  local bufnr = vim.api.nvim_get_current_buf()
-  local rel = core.git.rel_path(bufnr)
-  if not rel then return end
-  local lnum = clamp(bufnr, vim.fn.line("."))
-  local c = best_at(core, rel, lnum)
-  if not c and is_last_line(bufnr, lnum) then c = file_target(core, rel) end
-  if not c then
-    vim.notify("review.nvim: no comment on this line", vim.log.levels.INFO)
-    return
-  end
+  local bufnr, c = target_here(core)
+  if not c then return end
   -- toggle: si ya está abierto para este comentario, cerrar.
   if M._peek_id == c.id and #M._peek_wins > 0 then
     M.close_peek_float()
