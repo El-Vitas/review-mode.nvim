@@ -60,11 +60,11 @@ function M.render(core, bufnr)
 
   for _, h in ipairs(hunks) do
     -- Líneas borradas: líneas virtuales rojas ancladas encima de la posición
-    -- donde estaban (la primera línea nueva del hunk, o el fin si es borrado
-    -- puro al final).
+    -- donde estaban (la primera línea nueva del hunk). Un borrado puro al final
+    -- del archivo no tiene línea nueva debajo: va DEBAJO de la última línea.
     if #h.del_lines > 0 then
-      local anchor = math.max(h.new_start - 1, 0)
-      if anchor > last - 1 then anchor = math.max(last - 1, 0) end
+      local past_end = h.new_start > last
+      local anchor = past_end and math.max(last - 1, 0) or math.max(h.new_start - 1, 0)
       local virt = {}
       for _, dl in ipairs(h.del_lines) do
         local text = dl
@@ -75,7 +75,7 @@ function M.render(core, bufnr)
       end
       pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, anchor, 0, {
         virt_lines = virt,
-        virt_lines_above = true,
+        virt_lines_above = not past_end,
       })
     end
 

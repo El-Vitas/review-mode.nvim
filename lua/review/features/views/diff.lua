@@ -68,7 +68,7 @@ function M.hunks_between(head_lines, buf_lines)
   if #head_lines > 0 then a = a .. "\n" end
   if #buf_lines > 0 then b = b .. "\n" end
 
-  local ok, res = pcall(vim.diff, a, b, { result_type = "indices", algorithm = "histogram" })
+  local ok, res = pcall(vim.text.diff or vim.diff, a, b, { result_type = "indices", algorithm = "histogram" })
   if not ok or type(res) ~= "table" then return out end
 
   for _, h in ipairs(res) do

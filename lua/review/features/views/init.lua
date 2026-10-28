@@ -63,8 +63,10 @@ local function apply_current(core)
     -- usuario (treesitter/ufo) mostraría "+-- N lines" tapando lo que se revisa.
     if vim.bo[buf].buftype == "" and core.git.rel_path(buf) then
       pcall(function()
-        vim.wo[win].foldenable = false
-        vim.wo[win].foldlevel = 99
+        -- `[0]` = local a esta ventana: sin él cambiaba también el global y
+        -- archivos de fuera del repo nacían sin folds (contradice D11).
+        vim.wo[win][0].foldenable = false
+        vim.wo[win][0].foldlevel = 99
       end)
     end
   end)
@@ -96,6 +98,17 @@ function M.setup(core, opts)
     callback = function(a) inline.invalidate(a.buf) end,
   })
 
+  -- Al volver a Neovim, el HEAD pudo cambiar afuera (commit, `git add` con base
+  -- índice) sin tocar el archivo: olvidar los HEAD cacheados y repintar la vista.
+  vim.api.nvim_create_autocmd("FocusGained", {
+    group = group,
+    callback = function()
+      inline.invalidate()
+      require("review.features.views.scrollbar").invalidate()
+      vim.schedule(function() apply_current(core) end)
+    end,
+  })
+
   -- Review es permanente: al entrar a cualquier archivo del repo se aplica la
   -- vista actual (global, estilo VSCode) y se abren los folds.
   vim.api.nvim_create_autocmd({ "BufWinEnter", "BufEnter" }, {
@@ -106,12 +119,19 @@ function M.setup(core, opts)
     end,
   })
 
-  -- Cierre manual de una columna del split: limpiar la sesión.
+  -- Cierre MANUAL de cualquiera de las dos columnas del split: se toma como "no
+  -- quiero split". Se limpia la sesión y la vista global pasa a normal; si no,
+  -- el par reaparecía en el siguiente cambio de foco o de archivo.
   vim.api.nvim_create_autocmd("WinClosed", {
     group = group,
     callback = function(a)
       local win = tonumber(a.match)
-      if win then pcall(split.on_win_closed, win) end
+      if not win then return end
+      local ok, was_pair = pcall(split.on_win_closed, win)
+      if ok and was_pair and M.mode == "split" then
+        M.mode = "normal"
+        core.events.emit("view:changed", { mode = "normal" })
+      end
     end,
   })
 

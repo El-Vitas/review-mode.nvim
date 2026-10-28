@@ -69,7 +69,7 @@ function M.repad()
 
   local a = table.concat(head, "\n") .. "\n"
   local b = table.concat(edit, "\n") .. "\n"
-  local ok, hunks = pcall(vim.diff, a, b, { result_type = "indices", algorithm = "histogram" })
+  local ok, hunks = pcall(vim.text.diff or vim.diff, a, b, { result_type = "indices", algorithm = "histogram" })
   if not ok or type(hunks) ~= "table" then return end
 
   for _, h in ipairs(hunks) do
@@ -131,10 +131,12 @@ end
 -- cambió) + relleno diagonal, en una ventana en modo diff.
 local function open_all_folds(win)
   if win and vim.api.nvim_win_is_valid(win) then
+    -- `[0]` = local a la ventana (`:setlocal`): sin él también cambia el valor
+    -- global y todas las ventanas nuevas heredan estos folds.
     pcall(function()
-      vim.wo[win].foldenable = false
-      vim.wo[win].foldlevel = 99
-      vim.wo[win].fillchars = "diff:╱"
+      vim.wo[win][0].foldenable = false
+      vim.wo[win][0].foldlevel = 99
+      vim.wo[win][0].fillchars = "diff:╱"
     end)
   end
 end
@@ -151,11 +153,12 @@ local function restore_main(s)
     pcall(vim.api.nvim_win_call, w, function() vim.cmd("diffoff") end)
     pcall(function()
       local sv = s.saved or {}
-      vim.wo[w].foldenable = sv.fe ~= nil and sv.fe or true
-      vim.wo[w].foldlevel = sv.fl or 99
-      vim.wo[w].foldmethod = sv.fm or "manual"
-      vim.wo[w].fillchars = sv.fc or ""
-      vim.wo[w].winhighlight = sv.wh or ""
+      local wl = vim.wo[w][0]
+      if sv.fe == nil then wl.foldenable = true else wl.foldenable = sv.fe end
+      wl.foldlevel = sv.fl or 99
+      wl.foldmethod = sv.fm or "manual"
+      wl.fillchars = sv.fc or ""
+      wl.winhighlight = sv.wh or ""
     end)
   end
 end
@@ -188,17 +191,19 @@ local function create_pane(main_win)
   vim.bo[scratch].buftype = "nofile"
   vim.bo[scratch].bufhidden = "wipe"
   vim.api.nvim_win_set_buf(left_win, scratch)
-  pcall(function() vim.wo[left_win].winfixbuf = true end) -- no abrir archivos acá
+  pcall(function() vim.wo[left_win][0].winfixbuf = true end) -- no abrir archivos acá
   return { left_win = left_win, buf = scratch, main_win = main_win, saved = saved }
 end
 
 --- Maneja el cierre manual de una de las ventanas del split: si se cierra el
 --- panel HEAD o la ventana de edición, saca el diff de la que quede y limpia la
---- sesión (así no queda una columna pegada en modo diff).
+--- sesión (así no queda una columna pegada en modo diff). Los cierres que hace
+--- el propio plugin (teardown) no llegan acá: sueltan la sesión antes de cerrar.
+--- @return boolean true si la ventana cerrada era del par
 function M.on_win_closed(win)
   local s = M._session
-  if not s then return end
-  if win ~= s.left_win and win ~= s.main_win then return end
+  if not s then return false end
+  if win ~= s.left_win and win ~= s.main_win then return false end
   M._session = nil
   local is_left = (win == s.left_win)
   -- Diferir: no se pueden cerrar/modificar ventanas DENTRO del autocmd WinClosed
@@ -210,6 +215,7 @@ function M.on_win_closed(win)
       pcall(vim.api.nvim_win_close, s.left_win, true)
     end
   end)
+  return true
 end
 
 --- Sincroniza el panel HEAD con el archivo de la ventana ACTUAL (la de edición).
@@ -284,10 +290,10 @@ function M.sync(core)
   -- El modo diff apaga `wrap`. Respetar la preferencia del usuario (<leader>w);
   -- por defecto wrapeado.
   local wrap = vim.g.review_wrap ~= false
-  pcall(function() vim.wo[sess.left_win].wrap = wrap end)
-  pcall(function() vim.wo[cur].wrap = wrap end)
-  pcall(function() vim.wo[sess.left_win].winhighlight = WH_DEL end)
-  pcall(function() vim.wo[cur].winhighlight = WH_ADD end)
+  pcall(function() vim.wo[sess.left_win][0].wrap = wrap end)
+  pcall(function() vim.wo[cur][0].wrap = wrap end)
+  pcall(function() vim.wo[sess.left_win][0].winhighlight = WH_DEL end)
+  pcall(function() vim.wo[cur][0].winhighlight = WH_ADD end)
   vim.api.nvim_set_current_win(cur)
   pcall(vim.cmd, "diffupdate")
   -- Alinear filas de pantalla (wrap) con padding virtual. Diferido: las alturas

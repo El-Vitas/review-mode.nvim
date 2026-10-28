@@ -4,11 +4,23 @@
 -- expone los RANGOS de cambios para saltar con :ReviewNextChange / :ReviewChanges.
 local M = {}
 
--- Cache del contenido HEAD por buffer (git show es subproceso; el HEAD no cambia
--- mientras editás). Se libera al cerrar el buffer / recargar.
+-- Cache del contenido HEAD por buffer (git show es subproceso). Se libera al
+-- cerrar o recargar el buffer, al cambiar la base y al volver el foco a Neovim
+-- (un commit hecho afuera cambia el HEAD sin tocar el archivo).
 local _head = {}
 -- Cache de hunks por (buffer, changedtick).
 local _hunks = {}
+
+--- Olvida los HEAD y hunks cacheados (de un buffer, o de todos).
+function M.invalidate(bufnr)
+  if bufnr then
+    _head[bufnr] = nil
+    _hunks[bufnr] = nil
+  else
+    _head = {}
+    _hunks = {}
+  end
+end
 
 local function head_for(core, bufnr, rel, root)
   local c = _head[bufnr]
@@ -36,7 +48,7 @@ function M.hunks(core, bufnr)
       local a = table.concat(head, "\n")
       local b = table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
       if a ~= b then
-        local hunks = vim.diff(a, b, { result_type = "indices" }) or {}
+        local hunks = (vim.text.diff or vim.diff)(a, b, { result_type = "indices" }) or {}
         for _, h in ipairs(hunks) do
           local count_a, start_b, count_b = h[2], h[3], h[4]
           if count_a == 0 then
