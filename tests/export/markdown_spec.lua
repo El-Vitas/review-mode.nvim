@@ -84,6 +84,27 @@ describe("features.export.markdown", function()
       }, "\n")
       assert.are.equal(expected, out)
     end)
+
+    it("las respuestas van sangradas bajo su comentario, no como ítems numerados", function()
+      local list = {
+        { id = "p", path = "a.ts", lnum = 3, end_lnum = 3, text = "¿por qué?", author = "user", resolved = false },
+        { id = "r", path = "a.ts", lnum = 3, end_lnum = 3, text = "Hecho", author = "agent", reply_to = "p", resolved = false },
+      }
+      assert.are.equal(table.concat({
+        "## a.ts",
+        "1. `a.ts:3` ¿por qué?  `id:p`",
+        "   ↳ agent: Hecho  `id:r`",
+      }, "\n"), md.markdown(list))
+    end)
+
+    it("varios comentarios en la misma línea salen en orden de creación", function()
+      local list = {}
+      for i = 1, 8 do list[i] = { id = "c" .. i, path = "a.ts", lnum = 1, end_lnum = 1, text = "t" .. i, resolved = false } end
+      local out = md.markdown(list)
+      local ids = {}
+      for id in out:gmatch("`id:(c%d)`") do ids[#ids + 1] = id end
+      assert.are.same({ "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8" }, ids)
+    end)
   end)
 
   describe("file/all", function()

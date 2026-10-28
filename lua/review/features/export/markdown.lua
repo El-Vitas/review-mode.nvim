@@ -19,22 +19,33 @@ end
 
 --- Formatea una lista de comentarios a markdown agent-ready: AGRUPADO por
 --- archivo (encabezado `## <path>`) y ORDENADO por archivo + línea, con
---- numeración CONTINUA. Excluye los resueltos. Devuelve "" si no queda ninguno.
+--- numeración CONTINUA. Excluye los resueltos. Las respuestas (`reply_to`) no
+--- son ítems pendientes: van sangradas debajo de su comentario, para que el
+--- agente no reciba sus propias respuestas como tareas. Devuelve "" si no queda
+--- ninguno.
 --- @param list table[] lista de comment (id, path, lnum, end_lnum, text, resolved, ...)
 --- @return string
 function M.markdown(list)
   list = list or {}
-  -- Filtrar resueltos.
-  local items = {}
-  for _, c in ipairs(list) do
-    if not c.resolved then items[#items + 1] = c end
+  -- Filtrar resueltos y separar las respuestas por padre.
+  local items, replies, order = {}, {}, {}
+  for i, c in ipairs(list) do
+    order[c] = i
+    if c.reply_to then
+      replies[c.reply_to] = replies[c.reply_to] or {}
+      table.insert(replies[c.reply_to], c)
+    elseif not c.resolved then
+      items[#items + 1] = c
+    end
   end
   if #items == 0 then return "" end
 
-  -- Ordenar por archivo, luego por línea.
+  -- Ordenar por archivo y línea. `table.sort` no es estable: el desempate por
+  -- orden de creación deja la numeración igual entre exportaciones.
   table.sort(items, function(a, b)
     if a.path ~= b.path then return a.path < b.path end
-    return (a.lnum or 0) < (b.lnum or 0)
+    if (a.lnum or 0) ~= (b.lnum or 0) then return (a.lnum or 0) < (b.lnum or 0) end
+    return order[a] < order[b]
   end)
 
   local lines = {}
@@ -51,6 +62,10 @@ function M.markdown(list)
     -- agente pueda apuntar a él (reply/resolve/etc.) sin adivinar.
     local id = c.id and ("  `id:" .. c.id .. "`") or ""
     lines[#lines + 1] = string.format("%d. %s %s%s", n, anchor(c), oneline(c.text), id)
+    for _, r in ipairs(replies[c.id] or {}) do
+      local rid = r.id and ("  `id:" .. r.id .. "`") or ""
+      lines[#lines + 1] = string.format("   ↳ %s: %s%s", r.author or "user", oneline(r.text), rid)
+    end
   end
   return table.concat(lines, "\n")
 end
