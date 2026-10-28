@@ -260,6 +260,28 @@ bytes inválidos al buffer. Fix: reintentos al re-armar y `detach` si no vuelve;
 aviso de conflicto una vez por buffer; los archivos no UTF-8 no se reconcilian.
 Tests: `tests/agent/watch_spec.lua`.
 
+### B16 — El export mezclaba respuestas con pendientes y cambiaba de orden
+Las respuestas del agente salían como ítems numerados, así que al pegar `:Rya` el
+agente recibía sus propias respuestas como tareas; `table.sort` no es estable y
+varios comentarios en la misma línea cambiaban de número entre exportaciones.
+Fix: las respuestas van sangradas bajo su comentario (`↳ autor: texto`) y el
+orden desempata por creación. Tests: `tests/export/markdown_spec.lua`.
+
+### B17 — comments.json se reescribía al abrir o guardar cualquier archivo
+`BufReadPost` y `BufWritePost` llamaban a `persist()` siempre, aunque el archivo
+no tuviera comentarios. Fix: solo si el buffer tiene comentarios.
+
+### B18 — Un comentario nuevo caía en la línea vieja si el archivo cambiaba
+El popup capturaba `lnum` al abrirse; si el agente insertaba líneas mientras se
+escribía, el comentario se anclaba al número viejo. Fix: el rango se ancla con
+extmarks temporales mientras el popup está abierto. Tests:
+`tests/comments/mode_spec.lua`.
+
+### D27 — Vista inline con debounce en insert
+`inline.render` recalcula el diff de todo el buffer: 40 ms por tecla con 10 000
+líneas muy cambiadas. En `TextChangedI` se agrupa con un solo temporizador de
+80 ms; en `TextChanged` (fuera de insert) sigue siendo inmediato.
+
 ### B15 — Borrado al final del archivo pintado encima de la última línea
 La vista inline anclaba las líneas borradas encima de `new_start`, recortado a la
 última línea: "d" borrada del final aparecía antes de "c". Fix: debajo de la
