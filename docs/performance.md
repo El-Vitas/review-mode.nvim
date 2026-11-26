@@ -50,7 +50,7 @@ NO re-diffea en el mismo archivo:
 
 `inline.render` corre en cada `TextChanged/TextChangedI`. Antes hacía `git show`
 por tecla; ahora cachea el contenido HEAD por buffer (el HEAD no cambia mientras
-editás), invalidado al recargar/cerrar el buffer.
+editas), invalidado al recargar/cerrar el buffer.
 
 ## Sin fugas de recursos
 

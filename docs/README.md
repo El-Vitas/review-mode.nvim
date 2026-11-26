@@ -21,8 +21,7 @@ sigue siendo el archivo real y editable.
 
 ```lua
 {
-  dir = "~/Dev/nvim/review.nvim",
-  name = "review.nvim",
+  "El-Vitas/review-mode.nvim",
   dependencies = {
     "nvim-lua/plenary.nvim",
     "MunifTanjim/nui.nvim",

@@ -55,7 +55,7 @@ end
 --- Diff EN MEMORIA entre el contenido HEAD y el contenido actual del buffer
 --- (usando `vim.diff`, sin subprocess ni tocar el disco). A diferencia de
 --- `hunks_for` (que compara HEAD vs archivo en disco), esto refleja los cambios
---- SIN GUARDAR, así las vistas se actualizan mientras editás. Devuelve la misma
+--- SIN GUARDAR, así las vistas se actualizan mientras editas. Devuelve la misma
 --- forma de hunk que `parse_unified_diff`.
 --- @param head_lines string[]|nil líneas de la versión HEAD
 --- @param buf_lines string[] líneas actuales del buffer

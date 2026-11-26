@@ -84,7 +84,7 @@ function M.render(core, bufnr)
     -- saltea (es virtual, no es línea real) y queda bien asociado al código de
     -- abajo. Permite mostrar más caracteres que el chip anterior.
     -- priority BAJA para el fondo de línea: así la `cursorline` (línea actual)
-    -- gana sobre el fondo del comentario y NO te perdés dentro de un comentario.
+    -- gana sobre el fondo del comentario y NO te pierdes dentro de un comentario.
     -- (El default de line_hl_group es 4096, que tapa la cursorline.)
     local id = vim.api.nvim_buf_set_extmark(bufnr, core.ns.comments, row, 0, {
       end_row = end_lnum - 1,

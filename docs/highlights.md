@@ -1,6 +1,6 @@
 # Colores (highlight groups)
 
-Todos los grupos se definen con `default = true`, así que **podés
+Todos los grupos se definen con `default = true`, así que **puedes
 sobreescribirlos** en tu config (después de cargar el plugin, o en un autocmd
 `ColorScheme`). Los tonos por defecto están pensados para temas oscuros
 (catppuccin macchiato). El plugin los re-aplica en `ColorScheme`.
