@@ -4,7 +4,7 @@ local M = {}
 
 -- Cache del contenido HEAD por buffer: `git show HEAD` es un subproceso caro y
 -- render() se llama en CADA tecla (TextChangedI). El HEAD no cambia mientras
--- editás, así que lo corremos una sola vez por buffer. Se invalida al recargar
+-- editas, así que lo corremos una sola vez por buffer. Se invalida al recargar
 -- el archivo (BufReadPost, ver init.lua) o con M.invalidate(bufnr).
 M._head_cache = {}
 

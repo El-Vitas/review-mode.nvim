@@ -7,7 +7,7 @@
 ## Objetivo
 
 Traer el flujo de code-review de [tuicr](https://github.com/agavra/tuicr) **dentro de Neovim**, sin
-salir del editor: seguís escribiendo, con tu LSP, treesitter y keymaps, y encima tenés una capa de
+salir del editor: sigues escribiendo, con tu LSP, treesitter y keymaps, y encima tienes una capa de
 review (comentarios sobre líneas + vistas de diff) y un puente bidireccional con un agente de IA.
 
 **Principio rector:** la "vista" es solo *cómo se pinta el código*. Todo lo visual son
