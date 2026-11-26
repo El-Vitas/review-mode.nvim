@@ -71,7 +71,7 @@ editado dentro del buffer.
 vía extmarks, sin remapeo manual**. Además:
 - El buffer queda `nomodified` (coincide con disco).
 - Las vistas de diff (inline/split) recomputan solas (comparan buffer vs HEAD).
-- Queda en el undo tree (podés deshacer el cambio del agente con `u`).
+- Queda en el undo tree (puedes deshacer el cambio del agente con `u`).
 
 #### Detección (que sea confiable, no dependa de foco)
 
@@ -86,7 +86,7 @@ CursorHold) → NO alcanza si el agente edita en background. Por eso:
 
 #### Conflicto: buffer CON cambios sin guardar
 
-Único caso donde auto NO debe actuar solo: vos editaste y no guardaste, y el
+Único caso donde auto NO debe actuar solo: tú editaste y no guardaste, y el
 agente tocó ese archivo en disco → divergieron. **Nunca pisar lo tuyo:**
 - Si el buffer está `modified` → NO aplicar el patch. Avisar (`vim.notify`) y
   ofrecer: ver diff (buffer vs disco), aplicar de todos modos, o ignorar. Acá sí
@@ -172,9 +172,9 @@ comment = {
   3. El agente **edita el código en disco por su cuenta** y, por RPC, **responde
      ligado** a cada comentario (`reply`) con la justificación, opcionalmente lo
      resuelve, y avisa `notify_changed(path)` de los archivos que tocó.
-  4. Neovim recarga esos archivos y re-ancla los comentarios (1.3.2). Vos ves en
-     vivo: el badge/gutter marca que hay respuesta del agente; abrís el peek y
-     leés la justificación; aceptás (queda resuelto) o reabrís.
+  4. Neovim recarga esos archivos y re-ancla los comentarios (1.3.2). Tú ves en
+     vivo: el badge/gutter marca que hay respuesta del agente; abres el peek y
+     lees la justificación; aceptas (queda resuelto) o reabres.
   5. `clean_resolved` para limpiar lo cerrado.
 
 ### 1.6 Ideas extra para mejor flujo
@@ -182,7 +182,7 @@ comment = {
 - **Marcador "respondido por agente"** en el gutter (color/ícono distinto) para
   saltar rápido a lo contestado.
 - **Marcador `stale`** en comentarios cuya línea cayó dentro de una zona que el
-  agente cambió en disco (re-anclaje incierto) → los revisás vos.
+  agente cambió en disco (re-anclaje incierto) → los revisas tú.
 - **Historial por comentario:** guardar los replies como hilo ordenado por fecha.
 - **"Aceptar respuesta":** un comando que marca el hilo como resuelto y (opcional)
   archiva.
@@ -234,19 +234,19 @@ ideas.
 
 ## 2. Limpiar la config de Neovim
 
-Objetivo: dejar solo los plugins que usás, entendiendo dependencias, sin romper nada.
+Objetivo: dejar solo los plugins que usas, entendiendo dependencias, sin romper nada.
 
 ### 2.1 Inventario
 - Listar todo lo declarado en `~/.config/nvim/lua/plugins/*.lua`.
-- Para cada plugin: ¿lo usás? (comando/keymap/evento que dispare) ¿o es
+- Para cada plugin: ¿lo usas? (comando/keymap/evento que dispare) ¿o es
   dependencia de otro?
 
 ### 2.2 Clasificar
-- **Directo** (lo usás vos): editor, LSP, treesitter, telescope, neo-tree, etc.
+- **Directo** (lo usas tú): editor, LSP, treesitter, telescope, neo-tree, etc.
 - **Dependencia** (lo pide otro): p. ej. `plenary` (telescope/neo-tree/review),
   `nui` (review popups), `nvim-web-devicons`, `window-picker` (neo-tree).
   Estos **no se borran** aunque no los "uses" directamente.
-- **Candidato a sacar:** no referenciado por nadie y no lo usás.
+- **Candidato a sacar:** no referenciado por nadie y no lo usas.
 
 ### 2.3 Cómo manejar dependencias (lazy.nvim)
 - Si un plugin está en `dependencies = { ... }` de otro, lazy lo instala solo; no

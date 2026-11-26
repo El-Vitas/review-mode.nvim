@@ -2,7 +2,7 @@
 
 Los comandos largos van capitalizados (`:ReviewX`); cada uno tiene un **alias
 corto real** (`:Rx`) y una versión en **minúscula** (`rx`) resuelta por
-`cnoreabbrev` en `plugin/review.lua` (podés escribir en minúscula y se expande
+`cnoreabbrev` en `plugin/review.lua` (puedes escribir en minúscula y se expande
 al confirmar). El prefijo de keymaps es `opts.leader` (default `<leader>r`).
 
 ## Comentarios

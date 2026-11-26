@@ -326,7 +326,7 @@ local function wrap_text(text, w)
 end
 
 -- ── Peek FLOTANTE estilo tarjeta GitHub, DOS paneles apilados ───────────────
--- Panel de arriba = lo que dijiste vos (author=user); panel de abajo = lo que
+-- Panel de arriba = lo que dijiste tú (author=user); panel de abajo = lo que
 -- indicó claude (author≠user). Cada panel scrollea INDEPENDIENTE y muestra un
 -- scrollbar SOLO si su contenido desborda. Anclado a la línea del comentario
 -- (no persigue el cursor). Footer con acciones. Cierra con q/Esc o al salir.
