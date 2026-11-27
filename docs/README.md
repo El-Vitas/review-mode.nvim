@@ -1,23 +1,23 @@
-# review-mode — Documentación
+# review-mode — Documentation
 
-Code-review nativo dentro de Neovim: comentarios sobre líneas + vistas de diff
-(inline / split estilo VSCode) + export agent-ready + integración con neo-tree.
-La "vista" es solo **cómo se pinta el código**: todo son decoraciones (extmarks,
-virtual lines, statuscolumn) sobre el buffer real. Nada de tabs nuevas, el buffer
-sigue siendo el archivo real y editable.
+Native code review inside Neovim: comments on lines + diff views
+(inline / VSCode-style split) + agent-ready export + neo-tree integration.
+The "view" is only **how the code is painted**: everything is decorations (extmarks,
+virtual lines, statuscolumn) on top of the real buffer. No new tabs; the buffer
+remains the real, editable file.
 
-## Índice
+## Index
 
-- [architecture.md](./architecture.md) — arquitectura: core + vertical slices, contrato, storage, eventos.
-- [features.md](./features.md) — qué hace cada feature (comments, views, sidebar, export, agent).
-- [commands.md](./commands.md) — todos los comandos, alias y keymaps.
-- [highlights.md](./highlights.md) — grupos de highlight (colores) override-ables.
-- [performance.md](./performance.md) — caches y optimizaciones (RAM/velocidad).
-- [decisions.md](./decisions.md) — registro de TODAS las decisiones tomadas y su porqué.
-- [roadmap.md](./roadmap.md) — próximos pasos: diseño del agente (edición en vivo, conflictos, threading) y limpieza del nvim.
-- [plans/](./plans/) — planes de implementación originales (uno por slice).
+- [architecture.md](./architecture.md) — architecture: core + vertical slices, contract, storage, events.
+- [features.md](./features.md) — what each feature does (comments, views, sidebar, export, agent).
+- [commands.md](./commands.md) — all commands, aliases and keymaps.
+- [highlights.md](./highlights.md) — overridable highlight groups (colors).
+- [performance.md](./performance.md) — caches and optimizations (RAM/speed).
+- [decisions.md](./decisions.md) — record of ALL decisions made and the reasoning behind them.
+- [roadmap.md](./roadmap.md) — next steps: agent design (live editing, conflicts, threading) and nvim cleanup.
+- [plans/](./plans/) — original implementation plans (one per slice).
 
-## Instalación (lazy.nvim)
+## Installation (lazy.nvim)
 
 ```lua
 {
@@ -39,7 +39,7 @@ sigue siendo el archivo real y editable.
 nvim --headless -c "PlenaryBustedDirectory tests/ {minimal_init='tests/minimal_init.lua'}" -c "qa"
 ```
 
-## Estado
+## Status
 
-- **Implementado y estable:** core, comments, views (inline/split), sidebar, export,
-  `agent` (RPC nativo + reconciliación AUTO por patch-diff, deshabilitado por defecto).
+- **Implemented and stable:** core, comments, views (inline/split), sidebar, export,
+  `agent` (native RPC + AUTO reconciliation via patch-diff, disabled by default).

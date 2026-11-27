@@ -1,128 +1,128 @@
-# review.nvim — Diseño (arquitectura vertical-slice)
+# review.nvim — Design (vertical-slice architecture)
 
-**Fecha:** 2026-07-07
-**Ubicación:** `~/Dev/nvim/review.nvim`
-**Autor:** El-Vitas
+**Date:** 2026-07-07
+**Location:** `~/Dev/nvim/review.nvim`
+**Author:** El-Vitas
 
-## Objetivo
+## Goal
 
-Traer el flujo de code-review de [tuicr](https://github.com/agavra/tuicr) **dentro de Neovim**, sin
-salir del editor: sigues escribiendo, con tu LSP, treesitter y keymaps, y encima tienes una capa de
-review (comentarios sobre líneas + vistas de diff) y un puente bidireccional con un agente de IA.
+Bring the code-review workflow of [tuicr](https://github.com/agavra/tuicr) **into Neovim**, without
+leaving the editor: you keep writing, with your LSP, treesitter and keymaps, and on top of that you get a
+review layer (comments on lines + diff views) and a bidirectional bridge with an AI agent.
 
-**Principio rector:** la "vista" es solo *cómo se pinta el código*. Todo lo visual son
-**decoraciones (extmarks / virtual lines / virtual text)** sobre el buffer real — nada de tabs
-nuevas, el buffer sigue siendo el archivo real y editable, y el modo comentario está disponible en
-cualquier vista y en cualquier momento.
+**Guiding principle:** the "view" is only *how the code is painted*. Everything visual is a
+**decoration (extmarks / virtual lines / virtual text)** over the real buffer — no new tabs,
+the buffer stays the real, editable file, and comment mode is available in
+any view and at any time.
 
-## Arquitectura: core + vertical slices
+## Architecture: core + vertical slices
 
-Dos capas:
+Two layers:
 
-1. **`core/`** — un kernel compartido y estable. Es la ÚNICA dependencia de las features. No
-   contiene lógica de negocio de review; solo infraestructura: persistencia, estado, git, extmark
-   namespaces, eventos y el registro de features.
-2. **`features/<nombre>/`** — cada feature es un **vertical slice**: su propia lógica, UI, comandos,
-   keymaps y tests, dentro de su carpeta. **Depende solo del contrato de `core`**, nunca de otra
-   feature. Se comunican por eventos (pub/sub del core), nunca por require directo entre features.
+1. **`core/`** — a shared, stable kernel. It is the **only** dependency of the features. It
+   contains no review business logic; only infrastructure: persistence, state, git, extmark
+   namespaces, events and the feature registry.
+2. **`features/<name>/`** — each feature is a **vertical slice**: its own logic, UI, commands,
+   keymaps and tests, inside its folder. It **depends only on the `core` contract**, never on another
+   feature. Features communicate through events (the core's pub/sub), never through a direct require between features.
 
-Esto hace cada slice **independiente y testeable solo** → una vez construido el `core`, las features
-se pueden implementar **en paralelo** (un agente por feature).
+This makes each slice **independent and testable on its own** → once the `core` is built, the features
+can be implemented **in parallel** (one agent per feature).
 
-### Estructura de carpetas
+### Folder structure
 
 ```
 lua/review/
-  init.lua                 -- setup(opts): arranca core + features registradas
+  init.lua                 -- setup(opts): starts core + registered features
   core/
-    init.lua               -- expone la tabla `core` (git, store, state, ns, events, registry)
+    init.lua               -- exposes the `core` table (git, store, state, ns, events, registry)
     git.lua                -- root(), rel_path(bufnr), head_content(relpath), changed_files()
-    store.lua              -- root_fn, path(), load(), save(data)  (ÚNICA puerta al filesystem)
-    state.lua              -- all/for_path/by_id/add/remove/update/load/persist  (+ emite eventos)
-    ns.lua                 -- namespaces de extmarks: comments, views
-    events.lua             -- on(name, cb), emit(name, payload)  (pub/sub in-process)
-    registry.lua           -- register(feature), setup(opts) itera features
+    store.lua              -- root_fn, path(), load(), save(data)  (the only door to the filesystem)
+    state.lua              -- all/for_path/by_id/add/remove/update/load/persist  (+ emits events)
+    ns.lua                 -- extmark namespaces: comments, views
+    events.lua             -- on(name, cb), emit(name, payload)  (in-process pub/sub)
+    registry.lua           -- register(feature), setup(opts) iterates features
   features/
-    comments/              -- crear/editar/borrar/resolver comentarios + render extmark + modo
+    comments/              -- create/edit/delete/resolve comments + extmark render + mode
       init.lua  render.lua  mode.lua  commands.lua
-    export/                -- markdown agent-ready + comandos yank
+    export/                -- agent-ready markdown + yank commands
       init.lua  markdown.lua  commands.lua
-    views/                 -- vistas normal / inline / split
+    views/                 -- normal / inline / split views
       init.lua  inline.lua  split.lua  commands.lua
-    sidebar/               -- integración neo-tree (cambiados/todos + indicador de comentarios)
+    sidebar/               -- neo-tree integration (changed/all + comment indicator)
       init.lua
-    agent/                 -- puente RPC bidireccional para el agente
+    agent/                 -- bidirectional RPC bridge for the agent
       init.lua  rpc.lua
 tests/
   minimal_init.lua
   core/    comments/    export/    views/    agent/
 docs/
-  plans/                   -- un plan por slice (core + 5 features)
+  plans/                   -- one plan per slice (core + 5 features)
 ```
 
-## Contrato del `core` (API estable — todas las features dependen SOLO de esto)
+## `core` contract (stable API — all features depend **only** on this)
 
 ### `core.git`
-- `git.root()` → `string|nil` — raíz del repo (cacheada por cwd).
-- `git.rel_path(bufnr)` → `string|nil` — path del buffer relativo a la raíz.
-- `git.head_content(relpath)` → `string[]|nil` — líneas del archivo en HEAD (para vista split).
-- `git.changed_files()` → `string[]` — relpaths cambiados vs HEAD (para sidebar/views).
+- `git.root()` → `string|nil` — repo root (cached per cwd).
+- `git.rel_path(bufnr)` → `string|nil` — buffer path relative to the root.
+- `git.head_content(relpath)` → `string[]|nil` — lines of the file at HEAD (for the split view).
+- `git.changed_files()` → `string[]` — relpaths changed vs HEAD (for sidebar/views).
 
 ### `core.store`
-- `store.root_fn` — función reemplazable (tests) que devuelve la raíz o `nil`.
+- `store.root_fn` — replaceable function (tests) that returns the root or `nil`.
 - `store.path()` → `string|nil` — `<root>/.git/review.nvim/comments.json`.
-- `store.load()` → `{ version=1, comments={...} }` (nunca falla).
+- `store.load()` → `{ version=1, comments={...} }` (never fails).
 - `store.save(data)` → `boolean`.
 
-### `core.state` (fuente de verdad de los comentarios en memoria)
+### `core.state` (source of truth for the in-memory comments)
 - `state.all()` → `comment[]`.
 - `state.for_path(relpath)` → `comment[]`.
 - `state.by_id(id)` → `comment|nil`.
-- `state.add(comment)` → `comment` — asigna `id`, `created_at`, `resolved=false`, `author="user"` si faltan; **emite `comments:changed`**.
-- `state.remove(id)` → `boolean` — **emite `comments:changed`**.
-- `state.update(id, fields)` → `boolean` — **emite `comments:changed`**.
-- `state.load()` — puebla desde store. `state.persist()` — vuelca a store.
+- `state.add(comment)` → `comment` — assigns `id`, `created_at`, `resolved=false`, `author="user"` if missing; **emits `comments:changed`**.
+- `state.remove(id)` → `boolean` — **emits `comments:changed`**.
+- `state.update(id, fields)` → `boolean` — **emits `comments:changed`**.
+- `state.load()` — populates from the store. `state.persist()` — dumps to the store.
 - **comment**: `{ id, path, lnum, end_lnum, text, resolved, author, created_at, _extmark_id? }`
-  (`_extmark_id` es runtime, NO se persiste).
+  (`_extmark_id` is runtime-only, it is **not** persisted).
 
 ### `core.ns`
-- `ns.comments` → namespace id de extmarks de comentarios.
-- `ns.views` → namespace id de extmarks de vistas (inline diff).
+- `ns.comments` → namespace id of the comment extmarks.
+- `ns.views` → namespace id of the view extmarks (inline diff).
 
-### `core.events` (pub/sub in-process — desacopla features)
-- `events.on(name, cb)` — suscribe.
-- `events.emit(name, payload)` — dispara (protegido con pcall + `vim.schedule`).
-- Eventos definidos: `comments:changed` (payload `{ bufnr? }`), `view:changed` (payload `{ bufnr, mode }`).
+### `core.events` (in-process pub/sub — decouples features)
+- `events.on(name, cb)` — subscribes.
+- `events.emit(name, payload)` — fires (protected with pcall + `vim.schedule`).
+- Defined events: `comments:changed` (payload `{ bufnr? }`), `view:changed` (payload `{ bufnr, mode }`).
 
 ### `core.registry`
-- `registry.register({ name, setup })` — una feature se registra (típicamente al hacer `require`).
-- `registry.setup(opts)` — `state.load()`, luego por cada feature registrada llama `feature.setup(core, opts.features[name] or {})`.
+- `registry.register({ name, setup })` — a feature registers itself (typically on `require`).
+- `registry.setup(opts)` — `state.load()`, then for each registered feature calls `feature.setup(core, opts.features[name] or {})`.
 
 ### `review.init`
-- `setup(opts)` — `require` de todas las features (se auto-registran) y `core.registry.setup(opts)`.
+- `setup(opts)` — `require`s all the features (they self-register) and calls `core.registry.setup(opts)`.
 - `opts = { leader = "<leader>r", features = { comments={enabled=true}, export={...}, ... } }`.
 
-## Reglas de dependencia (para el paralelismo)
+## Dependency rules (for parallelism)
 
-- Una feature **NUNCA** hace `require("review.features.otra")`. Solo `require("review.core")`.
-- Coordinación entre features = **eventos** (`core.events`). Ej: `sidebar` escucha `comments:changed`
-  para refrescar su indicador; `comments` no sabe que `sidebar` existe.
-- Cada feature registra sus propios comandos/keymaps/autocmds dentro de su `setup(core, opts)`.
+- A feature **never** does `require("review.features.other")`. Only `require("review.core")`.
+- Coordination between features = **events** (`core.events`). E.g. `sidebar` listens to `comments:changed`
+  to refresh its indicator; `comments` does not know that `sidebar` exists.
+- Each feature registers its own commands/keymaps/autocmds inside its `setup(core, opts)`.
 
-## Features (un slice = un plan = potencialmente un agente)
+## Features (one slice = one plan = potentially one agent)
 
-| Slice | Depende de (core) | Escucha eventos | Entrega |
+| Slice | Depends on (core) | Listens to events | Delivers |
 |---|---|---|---|
-| **core** | — | — | git, store, state, ns, events, registry + `review.init` + harness de tests |
-| **comments** | git.rel_path, state.*, ns.comments, events | — | CRUD, render extmark (anclaje), modo comentario (popup nui), comandos/keymaps |
-| **export** | state.all/for_path, git.rel_path | — | markdown agent-ready, `:ReviewYankFile`/`:Ryf`, `:ReviewYankAll`/`:Rya` |
-| **views** | git.head_content/rel_path, ns.views | — | vistas normal/inline/split, `:ReviewView`/`:Rv` |
-| **sidebar** | state.all, neo-tree (changed/all lo resuelve neo-tree nativamente) | `comments:changed` | toggle cambiados/todos + indicador 💬, `:ReviewSidebar`/`:Rs` |
-| **agent** | state.add/remove/update/all/persist | — | funciones RPC (nvim `--server`) read/add/resolve/delete + doc del protocolo |
+| **core** | — | — | git, store, state, ns, events, registry + `review.init` + test harness |
+| **comments** | git.rel_path, state.*, ns.comments, events | — | CRUD, extmark render (anchoring), comment mode (nui popup), commands/keymaps |
+| **export** | state.all/for_path, git.rel_path | — | agent-ready markdown, `:ReviewYankFile`/`:Ryf`, `:ReviewYankAll`/`:Rya` |
+| **views** | git.head_content/rel_path, ns.views | — | normal/inline/split views, `:ReviewView`/`:Rv` |
+| **sidebar** | state.all, neo-tree (changed/all is resolved natively by neo-tree) | `comments:changed` | changed/all toggle + 💬 indicator, `:ReviewSidebar`/`:Rs` |
+| **agent** | state.add/remove/update/all/persist | — | RPC functions (nvim `--server`) read/add/resolve/delete + protocol doc |
 
-## Comandos y alias cortos
+## Commands and short aliases
 
-| Comando | Alias | Feature |
+| Command | Alias | Feature |
 |---|---|---|
 | `:ReviewCommentMode` | `:Rcm` / `rcm` | comments |
 | `:ReviewView {normal\|inline\|split}` | `:Rv` / `rv` | views |
@@ -131,33 +131,33 @@ docs/
 | `:ReviewList` | `:Rl` / `rl` | comments |
 | `:ReviewSidebar {changed\|all}` | `:Rs` / `rs` | sidebar |
 
-(Los user-commands nativos van capitalizados; las versiones en minúscula se logran con
-`cnoreabbrev` en `plugin/review.lua`.)
+(Native user-commands are capitalized; the lowercase versions are achieved with
+`cnoreabbrev` in `plugin/review.lua`.)
 
-## Modelo de datos (comentario)
+## Data model (comment)
 
 ```lua
 { id="uuid", path="src/foo.ts", lnum=42, end_lnum=42, text="…",
   resolved=false, author="user", created_at="RFC3339" }
 ```
-Anclaje: en runtime cada comentario tiene un `_extmark_id` (no persistido) → sigue la línea al
-editar. Al guardar, `lnum` se toma de la posición actual del extmark.
+Anchoring: at runtime each comment has an `_extmark_id` (not persisted) → it follows the line while
+editing. On save, `lnum` is taken from the extmark's current position.
 
 ## Storage
 
-`<repo>/.git/review.nvim/comments.json` — fuera del código, nunca commiteado, por-repo, persistente.
-Todo el I/O pasa por `core.store`.
+`<repo>/.git/review.nvim/comments.json` — outside the code, never committed, per-repo, persistent.
+All I/O goes through `core.store`.
 
 ## Testing
 
-`plenary`/busted, un subdirectorio por slice bajo `tests/`. Correr:
+`plenary`/busted, one subdirectory per slice under `tests/`. Run:
 `nvim --headless -c "PlenaryBustedDirectory tests/ {minimal_init='tests/minimal_init.lua'}"`.
-La UI (extmarks, popups, split) se verifica manual; la lógica pura (state, git parse, export,
-markdown, protocolo agent) se testea.
+The UI (extmarks, popups, split) is verified manually; pure logic (state, git parse, export,
+markdown, agent protocol) is tested.
 
-## Orden de construcción
+## Build order
 
-1. **core** (bloquea a todos).
-2. En paralelo (dependen solo del core): **comments**, **export**, **views**, **agent**.
-3. **sidebar** (conviene después de comments, porque muestra su indicador — aunque solo depende del
-   contrato, es más fácil verificarlo con comments andando).
+1. **core** (blocks everything else).
+2. In parallel (depend only on the core): **comments**, **export**, **views**, **agent**.
+3. **sidebar** (best done after comments, because it shows its indicator — although it only depends on the
+   contract, it is easier to verify with comments working).

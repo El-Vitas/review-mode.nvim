@@ -1,67 +1,67 @@
-# Colores (highlight groups)
+# Colors (highlight groups)
 
-Todos los grupos se definen con `default = true`, así que **puedes
-sobreescribirlos** en tu config (después de cargar el plugin, o en un autocmd
-`ColorScheme`). Los tonos por defecto están pensados para temas oscuros
-(catppuccin macchiato). El plugin los re-aplica en `ColorScheme`.
+All groups are defined with `default = true`, so **you can
+override them** in your config (after loading the plugin, or in a `ColorScheme`
+autocmd). The default tones are designed for dark themes
+(catppuccin macchiato). The plugin re-applies them on `ColorScheme`.
 
-## Comentarios (columna de signos, fondo de rango, badge)
+## Comments (sign column, range background, badge)
 
-| Grupo | Uso | Default |
+| Group | Use | Default |
 |---|---|---|
-| `ReviewCommentLine` | fondo del rango (comentario par) | `bg #2c3a52` (azul) |
-| `ReviewCommentLine2` | fondo del rango (comentario impar, alterna) | `bg #26436b` |
-| `ReviewCommentLineResolved` | fondo de rango resuelto | `bg #2a2b38` |
-| `ReviewCommentAgent` | fondo del rango (comentario del agente) | `bg #3a2c52` (violeta) |
-| `ReviewCommentStale` | fondo del rango (anclaje incierto, ⚠) | `bg #4a3a1d` (ámbar) |
-| `ReviewCommentSign1..6` | corchete del gutter (color cíclico por comentario) | blue/green/mauve/peach/teal/yellow |
-| `ReviewCommentSignAgent` | corchete del gutter para comentario del agente | `fg #c6a0f6` (violeta) |
-| `ReviewCommentSignResolved` | corchete de resuelto | `fg #6e738d` |
-| `ReviewCommentBadge` / `…Edge` | chip al final de línea + su borde | `bg #3b4b71` |
-| `ReviewCommentBadgeAgent` / `…EdgeAgent` | chip del agente + su borde | `bg #3a2c52` (violeta) |
-| `ReviewCommentBadgeResolved` / `…EdgeResolved` | chip resuelto | `bg #33343f` |
+| `ReviewCommentLine` | range background (even comment) | `bg #2c3a52` (blue) |
+| `ReviewCommentLine2` | range background (odd comment, alternates) | `bg #26436b` |
+| `ReviewCommentLineResolved` | resolved range background | `bg #2a2b38` |
+| `ReviewCommentAgent` | range background (agent comment) | `bg #3a2c52` (violet) |
+| `ReviewCommentStale` | range background (uncertain anchor, ⚠) | `bg #4a3a1d` (amber) |
+| `ReviewCommentSign1..6` | gutter bracket (cyclic color per comment) | blue/green/mauve/peach/teal/yellow |
+| `ReviewCommentSignAgent` | gutter bracket for agent comment | `fg #c6a0f6` (violet) |
+| `ReviewCommentSignResolved` | resolved bracket | `fg #6e738d` |
+| `ReviewCommentBadge` / `…Edge` | end-of-line chip + its border | `bg #3b4b71` |
+| `ReviewCommentBadgeAgent` / `…EdgeAgent` | agent chip + its border | `bg #3a2c52` (violet) |
+| `ReviewCommentBadgeResolved` / `…EdgeResolved` | resolved chip | `bg #33343f` |
 
-**Autoría / hilos / stale:** los comentarios del agente (`author ~= "user"`) se pintan con fondo
-violeta e ícono 🤖; los que tienen respuestas muestran un sufijo `↩N` en el badge; los marcados
-`stale` (la línea anclada cambió en disco) se pintan ámbar con ⚠. El peek (`<leader>rp`) muestra el
-hilo completo: el comentario padre y, sangradas debajo, las respuestas con su autor.
+**Authorship / threads / stale:** agent comments (`author ~= "user"`) are painted with a violet
+background and a 🤖 icon; those with replies show a `↩N` suffix in the badge; those marked
+`stale` (the anchored line changed on disk) are painted amber with ⚠. The peek (`<leader>rp`) shows the
+full thread: the parent comment and, indented below it, the replies with their author.
 
-## Peek inline
+## Inline peek
 
-| Grupo | Uso | Default |
+| Group | Use | Default |
 |---|---|---|
-| `ReviewPeekNormal` | fondo del bloque del peek | `bg #1e2030` |
-| `ReviewPeekBorder` | barra izquierda del peek | `fg #8aadf4` |
-| `ReviewPeekHeader` | encabezado (estado · rango · autor) | `bg #2c3a52 fg #8aadf4` |
-| `ReviewPeekSep` | separador | `fg #5b6078` |
+| `ReviewPeekNormal` | peek block background | `bg #1e2030` |
+| `ReviewPeekBorder` | peek left bar | `fg #8aadf4` |
+| `ReviewPeekHeader` | header (state · range · author) | `bg #2c3a52 fg #8aadf4` |
+| `ReviewPeekSep` | separator | `fg #5b6078` |
 
-## Split (diff) — colores por columna
+## Split (diff) — colors per column
 
-El diff nativo pinta ambos lados con los mismos grupos; los remapeamos **por
-ventana** con `winhighlight` para que la columna HEAD (izq) sea roja y la del
-archivo (der) verde. Distingue **línea modificada** (fondo amarillo suave) del
-**texto exacto que cambió** (rojo/verde fuerte). **Solo fondo** (sin fg/bold).
+Native diff paints both sides with the same groups; we remap them **per
+window** with `winhighlight` so that the HEAD column (left) is red and the file
+column (right) is green. It distinguishes a **modified line** (soft yellow background) from the
+**exact text that changed** (strong red/green). **Background only** (no fg/bold).
 
-| Grupo | Uso | Default |
+| Group | Use | Default |
 |---|---|---|
-| `ReviewDiffChange` | línea modificada (ambas columnas) | `bg #44401d` (amarillo) |
-| `ReviewDiffDelLine` | línea borrada entera (izq) | `bg #37202a` (rojo oscuro) |
-| `ReviewDiffDelText` | texto quitado dentro de la línea (izq) | `bg #54232f` (rojo) |
-| `ReviewDiffAddLine` | línea agregada entera (der) | `bg #21331f` (verde oscuro) |
-| `ReviewDiffAddText` | texto agregado dentro de la línea (der) | `bg #2c4a30` (verde) |
-| `ReviewDiffFiller` | relleno de alineación | `bg #2a2b38` |
+| `ReviewDiffChange` | modified line (both columns) | `bg #44401d` (yellow) |
+| `ReviewDiffDelLine` | entire deleted line (left) | `bg #37202a` (dark red) |
+| `ReviewDiffDelText` | text removed within the line (left) | `bg #54232f` (red) |
+| `ReviewDiffAddLine` | entire added line (right) | `bg #21331f` (dark green) |
+| `ReviewDiffAddText` | text added within the line (right) | `bg #2c4a30` (green) |
+| `ReviewDiffFiller` | alignment filler | `bg #2a2b38` |
 
-## Ejemplos de override
+## Override examples
 
 ```lua
--- Comentarios en otro tono
+-- Comments in a different tone
 vim.api.nvim_set_hl(0, "ReviewCommentLine",  { bg = "#2e3440" })
 vim.api.nvim_set_hl(0, "ReviewCommentLine2", { bg = "#3b4252" })
 
--- Diff: línea modificada azulada en vez de amarilla
+-- Diff: bluish modified line instead of yellow
 vim.api.nvim_set_hl(0, "ReviewDiffChange", { bg = "#2b3350" })
 
--- Rojos/verdes del split
+-- Split reds/greens
 vim.api.nvim_set_hl(0, "ReviewDiffDelText", { bg = "#54232f" })
 vim.api.nvim_set_hl(0, "ReviewDiffAddText", { bg = "#2c4a30" })
 ```
