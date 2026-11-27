@@ -3,20 +3,20 @@ local render = require("review.features.comments.render")
 
 local M = {}
 
--- Arma los items de quickfix a partir de una lista de comentarios.
--- `filename` va ABSOLUTO (root .. path): la quickfix resuelve contra el cwd,
--- pero c.path es relativo a la raíz del repo.
+-- Builds the quickfix items from a list of comments.
+-- `filename` is ABSOLUTE (root .. path): quickfix resolves against the cwd,
+-- but c.path is relative to the repo root.
 local function to_qf_items(core, comments)
   local root = core.git.root() or ""
   local base = (root ~= "") and (root .. "/") or ""
   local items = {}
   for _, c in ipairs(comments) do
     local prefix = c.resolved and "[✓] " or ""
-    if c.file_level then prefix = prefix .. "⧉ file · " end -- marca de comentario de archivo
+    if c.file_level then prefix = prefix .. "⧉ file · " end -- file-comment marker
     local text = (c.text or ""):gsub("[\r\n]+", " ")
     table.insert(items, {
       filename = base .. c.path,
-      lnum = c.lnum or 1, -- file_level no tiene línea; la quickfix igual necesita una
+      lnum = c.lnum or 1, -- file_level has no line; quickfix still needs one
       col = 1,
       text = prefix .. text,
     })
@@ -24,7 +24,7 @@ local function to_qf_items(core, comments)
   return items
 end
 
--- Ordena por archivo y luego por línea, para una lista prolija.
+-- Sorts by file and then by line, for a tidy list.
 local function sorted(comments)
   local list = vim.deepcopy(comments)
   table.sort(list, function(a, b)
@@ -34,7 +34,7 @@ local function sorted(comments)
   return list
 end
 
--- Re-renderiza los extmarks del archivo de `c` si está abierto en un buffer.
+-- Re-renders the extmarks of `c`'s file if it is open in a buffer.
 local function rerender_file(core, c)
   local root = core.git.root() or ""
   local bnr = vim.fn.bufnr((root ~= "" and (root .. "/") or "") .. c.path)
@@ -43,14 +43,14 @@ local function rerender_file(core, c)
   end
 end
 
--- Abre la quickfix con la lista de comentarios que devuelve `provider()`.
--- Sobre una entrada: <CR> ir (y cerrar), d borrar, x resolver/des-resolver,
--- q cerrar. Una winbar arriba muestra los atajos. `provider` se re-consulta
--- para refrescar la lista tras d/x.
+-- Opens the quickfix with the list of comments returned by `provider()`.
+-- On an entry: <CR> go (and close), d delete, x resolve/unresolve,
+-- q close. A winbar on top shows the shortcuts. `provider` is queried again
+-- to refresh the list after d/x.
 local FILTER_CYCLE = { "all", "open", "resolved", "mine", "agent", "answered", "unanswered" }
 
---- Filtra una lista de comentarios según `mode`. `replies_fn(id)` devuelve las
---- respuestas de un comentario (para answered/unanswered). Función pura/testeable.
+--- Filters a list of comments according to `mode`. `replies_fn(id)` returns the
+--- replies of a comment (for answered/unanswered). Pure/testable function.
 function M._filter(list, replies_fn, mode)
   local function answered(c) return #(replies_fn(c.id) or {}) > 0 end
   local pred = {
@@ -73,8 +73,8 @@ local function open_list(core, provider, title)
   local ftitle = "review.nvim" .. (title and (": " .. title) or "")
 
   local function apply_filter(list)
-    -- La lista muestra solo comentarios top-level (las respuestas viven en el
-    -- hilo del padre, visible en el peek).
+    -- The list shows only top-level comments (replies live in the
+    -- parent's thread, visible in the peek).
     local top = {}
     for _, c in ipairs(list) do if not c.reply_to then top[#top + 1] = c end end
     return M._filter(top, function(id) return core.state.replies(id) end, ctx.filter)
@@ -106,8 +106,8 @@ local function open_list(core, provider, title)
   local function comment_at_cursor()
     return ctx.comments[vim.fn.line(".")]
   end
-  -- Refresca la lista in situ. Solo cierra si NO queda ningún comentario en
-  -- total (el filtro puede dejar la vista vacía y eso es válido).
+  -- Refreshes the list in place. Only closes if NO comment is left
+  -- in total (the filter may leave the view empty and that is valid).
   local function refresh()
     local its = items_now()
     if ctx.raw == 0 then
@@ -151,7 +151,7 @@ local function open_list(core, provider, title)
   end, { buffer = qbuf, nowait = true, desc = "review.nvim: resolve/unresolve" })
 end
 
--- Re-renderiza los comentarios en todos los buffers cargados (tras un toggle).
+-- Re-renders the comments in all loaded buffers (after a toggle).
 local function rerender_all(core)
   for _, b in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_loaded(b) then
@@ -177,25 +177,25 @@ function M.setup(core, opts)
   local function toggle_hidden()
     render.hidden = not render.hidden
     rerender_all(core)
-    pcall(vim.cmd, "redrawstatus!") -- refrescar el gutter (corchetes) también
+    pcall(vim.cmd, "redrawstatus!") -- refresh the gutter (brackets) too
     vim.notify("review.nvim: comments " .. (render.hidden and "hidden" or "visible"), vim.log.levels.INFO)
   end
   local function peek() mode.peek_here(core) end
 
-  -- Comandos largos + alias cortos (todos comandos REALES; las minúsculas las
-  -- resuelve plugin/review.lua vía cnoreabbrev).
-  vim.api.nvim_create_user_command("ReviewCommentMode", edit, {})   -- editar comentario de la línea
+  -- Long commands + short aliases (all REAL commands; the lowercase ones are
+  -- resolved by plugin/review.lua via cnoreabbrev).
+  vim.api.nvim_create_user_command("ReviewCommentMode", edit, {})   -- edit the line's comment
   vim.api.nvim_create_user_command("Rcm", edit, {})
-  vim.api.nvim_create_user_command("ReviewList", list_all, {})      -- listar todos (global)
+  vim.api.nvim_create_user_command("ReviewList", list_all, {})      -- list all (global)
   vim.api.nvim_create_user_command("Rl", list_all, {})
-  vim.api.nvim_create_user_command("ReviewListFile", list_file, {}) -- listar del archivo actual
+  vim.api.nvim_create_user_command("ReviewListFile", list_file, {}) -- list the current file's
   vim.api.nvim_create_user_command("Rlf", list_file, {})
-  vim.api.nvim_create_user_command("ReviewToggle", toggle_hidden, {}) -- ocultar/mostrar
+  vim.api.nvim_create_user_command("ReviewToggle", toggle_hidden, {}) -- hide/show
   vim.api.nvim_create_user_command("Rt", toggle_hidden, {})
-  vim.api.nvim_create_user_command("ReviewPeek", peek, {})           -- ver comentario (tarjeta flotante)
+  vim.api.nvim_create_user_command("ReviewPeek", peek, {})           -- view comment (floating card)
   vim.api.nvim_create_user_command("Rp", peek, {})
   local function file_comment() mode.add_file_here(core) end
-  vim.api.nvim_create_user_command("ReviewFileComment", file_comment, {}) -- comentario de archivo (abajo del todo)
+  vim.api.nvim_create_user_command("ReviewFileComment", file_comment, {}) -- file comment (at the very bottom)
   vim.api.nvim_create_user_command("Rfc", file_comment, {})
 
   vim.keymap.set("n", leader .. "e", function() mode.edit_here(core) end, { desc = "Review: edit comment on line" })

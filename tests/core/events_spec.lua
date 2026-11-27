@@ -3,7 +3,7 @@ local events = require("review.core.events")
 describe("core.events", function()
   before_each(function() events._reset() end)
 
-  it("on/emit entrega el payload", function()
+  it("on/emit delivers the payload", function()
     local got
     events.on("x:test", function(p) got = p.v end)
     events.emit("x:test", { v = 42 })
@@ -11,7 +11,7 @@ describe("core.events", function()
     assert.are.equal(42, got)
   end)
 
-  it("_reset limpia las suscripciones", function()
+  it("_reset clears the subscriptions", function()
     local calls = 0
     events.on("x:test", function() calls = calls + 1 end)
     events._reset()

@@ -13,12 +13,12 @@ describe("sidebar.files_with_comments", function()
     core = { state = state }
   end)
 
-  it("vacío si no hay comentarios", function()
+  it("empty when there are no comments", function()
     local set = sidebar.files_with_comments(core)
     assert.are.same({}, set)
   end)
 
-  it("incluye cada relpath con ≥1 comentario, sin duplicados", function()
+  it("includes each relpath with >=1 comment, without duplicates", function()
     state.add({ path = "a.ts", lnum = 1, text = "x" })
     state.add({ path = "a.ts", lnum = 2, text = "y" })
     state.add({ path = "b/c.ts", lnum = 1, text = "z" })
@@ -32,7 +32,7 @@ describe("sidebar.files_with_comments", function()
     assert.are.equal(2, count)
   end)
 
-  it("incluye comentarios resueltos también", function()
+  it("includes resolved comments too", function()
     state.add({ path = "a.ts", lnum = 1, text = "x", resolved = true })
     local set = sidebar.files_with_comments(core)
     assert.is_true(set["a.ts"])

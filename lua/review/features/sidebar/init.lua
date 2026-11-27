@@ -3,9 +3,9 @@ local M = {}
 M._subscribed = false
 M._core = nil
 
---- Helper PURO: set de relpaths con ≥1 comentario. No toca neo-tree, no tiene
---- efectos secundarios. Reutilizable por quien quiera marcar el árbol.
---- @param core table  el core de review.nvim (usa core.state.all())
+--- PURE helper: set of relpaths with ≥1 comment. Does not touch neo-tree, has no
+--- side effects. Reusable by anyone who wants to mark the tree.
+--- @param core table  the review.nvim core (uses core.state.all())
 --- @return table<string, boolean>
 function M.files_with_comments(core)
   local set = {}
@@ -17,7 +17,7 @@ function M.files_with_comments(core)
   return set
 end
 
---- Verdadero si hay una ventana neo-tree visible en el tab actual.
+--- True if there is a neo-tree window visible in the current tab.
 local function neotree_window_open()
   for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
     local buf = vim.api.nvim_win_get_buf(win)
@@ -28,9 +28,9 @@ local function neotree_window_open()
   return false
 end
 
---- Refresca el indicador/redibujado del árbol si está abierto. No fuerza apertura.
---- Fase actual: recalcula el set puro; el marcado visual fino queda documentado
---- como fase secundaria (ver Task 4).
+--- Refreshes the tree indicator/redraw if it is open. Does not force opening.
+--- Current phase: recomputes the pure set; the fine visual marking is documented
+--- as a secondary phase (see Task 4).
 function M._refresh()
   if not M._core then return end
   if not neotree_window_open() then return end
@@ -40,15 +40,15 @@ function M._refresh()
   pcall(command.execute, { action = "refresh" })
 end
 
---- Base de review "efectiva" para neo-tree: un commit concreto o nil.
---- DELEGA en core.git.effective_base() (única fuente de verdad). HEAD/index/""
---- → nil (git status normal); un commit → ese ref.
+--- "Effective" review base for neo-tree: a concrete commit or nil.
+--- DELEGATES to core.git.effective_base() (single source of truth). HEAD/index/""
+--- → nil (normal git status); a commit → that ref.
 local function effective_base()
   return M._core and M._core.git.effective_base() or nil
 end
 
---- Worktree root para indexar `git_base_by_worktree`, tal como lo resuelve
---- neo-tree (git.find_worktree_info sobre el cwd/state.path).
+--- Worktree root to index `git_base_by_worktree`, as neo-tree resolves it
+--- (git.find_worktree_info on the cwd/state.path).
 local function worktree_root()
   local ok, git = pcall(require, "neo-tree.git")
   if not ok then return nil end
@@ -56,9 +56,9 @@ local function worktree_root()
   return (git.find_worktree_info(path))
 end
 
---- Sincroniza el `git_base_by_worktree` del state de git_status con la base de
---- review: setea el commit efectivo, o LIMPIA la entrada si la base es HEAD/index
---- (neo-tree nunca limpia solo; hay que borrarla a mano para volver a `git status`).
+--- Syncs the git_status state's `git_base_by_worktree` with the review
+--- base: sets the effective commit, or CLEARS the entry if the base is HEAD/index
+--- (neo-tree never clears it on its own; it must be deleted by hand to go back to `git status`).
 local function sync_git_base(state)
   if not state then return end
   local base = effective_base()
@@ -67,24 +67,24 @@ local function sync_git_base(state)
     local root = worktree_root()
     if root then state.git_base_by_worktree[root] = base end
   else
-    -- Base = HEAD/index → limpiar TODAS las entradas para volver al git status
-    -- normal (neo-tree nunca las borra solo; y así no queda clave stale por
-    -- diferencias de normalización del worktree root entre nosotros y neo-tree).
+    -- Base = HEAD/index → clear ALL entries to go back to the normal git
+    -- status (neo-tree never deletes them on its own; and this way no stale key is left due to
+    -- worktree root normalization differences between us and neo-tree).
     for k in pairs(state.git_base_by_worktree) do
       state.git_base_by_worktree[k] = nil
     end
   end
-  -- Forzar renavegación: al volver a HEAD no pasamos git_base, así que
-  -- git_base_changed sería false y neo-tree no recomputaría el árbol.
+  -- Force re-navigation: when going back to HEAD we do not pass git_base, so
+  -- git_base_changed would be false and neo-tree would not recompute the tree.
   state.dirty = true
 end
 
---- ÚNICA vía para abrir/revelar/mostrar neo-tree RESPETANDO la base de review.
---- Si el source es git_status: sincroniza el git_base del state (set/clear según
---- la base) e inyecta `exec.git_base` = base efectiva. Cualquier call site (este
---- plugin O el config del usuario vía require("review").neotree_exec) debe pasar
---- por acá — así NUNCA se abre el árbol de cambios ignorando la base.
---- @param exec table  args para neo-tree.command.execute (source/action/position/reveal_file/…)
+--- The ONLY way to open/reveal/show neo-tree RESPECTING the review base.
+--- If the source is git_status: syncs the state's git_base (set/clear depending on
+--- the base) and injects `exec.git_base` = effective base. Any call site (this
+--- plugin OR the user's config via require("review").neotree_exec) must go
+--- through here — so the changes tree is NEVER opened ignoring the base.
+--- @param exec table  args for neo-tree.command.execute (source/action/position/reveal_file/…)
 --- @return boolean ok
 function M.neotree_exec(exec)
   local ok, command = pcall(require, "neo-tree.command")
@@ -92,44 +92,44 @@ function M.neotree_exec(exec)
     vim.notify("review.nvim: neo-tree.nvim is not installed, sidebar disabled", vim.log.levels.WARN)
     return false
   end
-  -- Reveal: neo-tree NO deja el cursor sobre el archivo de forma fiable (git_status
-  -- queda en la raíz; filesystem a veces tampoco). Lo forzamos con focus_node tras
-  -- renderizar, para AMBOS sources. En git_status el reveal se hace como show
-  -- (el reveal nativo del git_status no posiciona); en filesystem se deja el reveal
-  -- nativo (expande la ruta) + focus_node como red de seguridad.
+  -- Reveal: neo-tree does NOT reliably leave the cursor on the file (git_status
+  -- stays at the root; filesystem sometimes does too). We force it with focus_node after
+  -- rendering, for BOTH sources. In git_status the reveal is done as a show
+  -- (git_status's native reveal does not position); in filesystem the native
+  -- reveal is kept (expands the path) + focus_node as a safety net.
   local focus_after, focus_source
   if exec.action == "reveal" and exec.reveal_file then
     focus_after = exec.reveal_file
     focus_source = exec.source
     if exec.source == "git_status" then
-      -- git_status: el reveal nativo no posiciona → show + focus_node manual.
+      -- git_status: the native reveal does not position → show + manual focus_node.
       exec.action = "show"
       exec.reveal_file = nil
     end
   end
-  -- Los DOS modos del árbol comparan contra la base de review: el de cambios
-  -- para decidir qué archivos lista, y el de archivos para las letras de estado
-  -- (N, M, D…). Si el de archivos usara `git status` plano, un archivo nuevo
-  -- respecto de la base pero ya commiteado aparecía sin letra, mientras gitsigns,
-  -- la statusline y las vistas lo marcaban como nuevo.
+  -- BOTH tree modes compare against the review base: the changes one
+  -- to decide which files it lists, and the files one for the status letters
+  -- (N, M, D…). If the files one used plain `git status`, a file that is new
+  -- relative to the base but already committed showed up without a letter, while gitsigns,
+  -- the statusline and the views marked it as new.
   local source = exec.source or "filesystem"
   if source == "git_status" or source == "filesystem" then
     local ok_mgr, mgr = pcall(require, "neo-tree.sources.manager")
     if ok_mgr then sync_git_base(mgr.get_state(source)) end
-    exec.git_base = effective_base() -- nil si HEAD/index → git status normal
+    exec.git_base = effective_base() -- nil if HEAD/index → normal git status
   end
   if source == "filesystem" and focus_after and exec.action == "reveal" then
-    -- filesystem reveal: command.execute({reveal_file=…}) NO expande la ruta;
-    -- el comando string `Neotree reveal` sí (revela el archivo ACTUAL, que es el
-    -- que <leader>E quiere revelar). La base ya quedó en el state (sync_git_base).
-    -- Luego focus_node como red de seguridad.
+    -- filesystem reveal: command.execute({reveal_file=…}) does NOT expand the path;
+    -- the string command `Neotree reveal` does (it reveals the CURRENT file, which is the
+    -- one <leader>E wants to reveal). The base is already in the state (sync_git_base).
+    -- Then focus_node as a safety net.
     vim.cmd("Neotree reveal source=filesystem position=" .. (exec.position or "right"))
   else
     command.execute(exec)
   end
   if focus_after then
-    -- Tras render (async), enfocar el nodo del archivo. Probamos el path tal cual
-    -- y su versión resuelta (symlinks) porque el id del nodo es el path canónico.
+    -- After render (async), focus the file's node. We try the path as is
+    -- and its resolved version (symlinks) because the node id is the canonical path.
     vim.defer_fn(function()
       local ok_mgr, mgr = pcall(require, "neo-tree.sources.manager")
       local ok_r, renderer = pcall(require, "neo-tree.ui.renderer")
@@ -144,19 +144,19 @@ function M.neotree_exec(exec)
   return true
 end
 
---- Abre/enfoca el árbol de neo-tree en el source pedido.
+--- Opens/focuses the neo-tree tree on the requested source.
 --- @param kind "changed"|"all"
 local function open_sidebar(kind)
-  -- Recalcular el cache de archivos-con-comentarios al abrir, para que el
-  -- marcador no quede obsoleto si se agregaron/borraron comentarios con el
-  -- árbol cerrado (M._refresh se saltea cuando la ventana no está abierta).
+  -- Recompute the files-with-comments cache on open, so the
+  -- marker does not go stale if comments were added/deleted while the
+  -- tree was closed (M._refresh is skipped when the window is not open).
   if M._core then M._files_with_comments_cache = M.files_with_comments(M._core) end
   local source = kind == "all" and "filesystem" or "git_status"
   if not M.neotree_exec({ source = source, action = "show", position = "right" }) then return end
 
-  -- Abrir con las carpetas CERRADAS (por defecto neo-tree las deja expandidas y
-  -- es un caos). Colapsamos todo tras renderizar, usando el comando nativo de
-  -- neo-tree sobre el estado del árbol.
+  -- Open with the folders CLOSED (by default neo-tree leaves them expanded and
+  -- it is chaos). We collapse everything after rendering, using neo-tree's
+  -- native command on the tree state.
   vim.schedule(function()
     local ok_mgr, mgr = pcall(require, "neo-tree.sources.manager")
     local ok_cmd, cmds = pcall(require, "neo-tree.sources.common.commands")
@@ -188,7 +188,7 @@ function M.setup(core, opts)
     complete = function() return { "changed", "all" } end,
   })
 
-  -- Alias corto como comando REAL (la minúscula `rs` la resuelve plugin/review.lua).
+  -- Short alias as a REAL command (the lowercase `rs` is resolved by plugin/review.lua).
   vim.api.nvim_create_user_command("Rs", function(cmd_opts)
     local kind = cmd_opts.args ~= "" and cmd_opts.args or "changed"
     if kind ~= "changed" and kind ~= "all" then
@@ -198,9 +198,9 @@ function M.setup(core, opts)
     open_sidebar(kind)
   end, { nargs = "?", complete = function() return { "changed", "all" } end })
 
-  -- Toggle changed <-> all DERIVADO del source realmente abierto (no de un estado
-  -- interno que se desincroniza cuando el árbol lo abrió el config/restore vía
-  -- <leader>e). git_status(changed) → all ; filesystem(all) → changed ; cerrado → changed.
+  -- Toggle changed <-> all DERIVED from the source actually open (not from an
+  -- internal state that goes out of sync when the tree was opened by the config/restore via
+  -- <leader>e). git_status(changed) → all ; filesystem(all) → changed ; closed → changed.
   local function open_source()
     for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
       local b = vim.api.nvim_win_get_buf(w)
@@ -213,12 +213,12 @@ function M.setup(core, opts)
   end
   local function toggle()
     local src = open_source()
-    local kind = (src == "git_status") and "all" or "changed" -- filesystem/cerrado → changed
+    local kind = (src == "git_status") and "all" or "changed" -- filesystem/closed → changed
     open_sidebar(kind)
     vim.notify("review.nvim: sidebar " .. (kind == "all" and "all files" or "changed files"), vim.log.levels.INFO)
   end
-  -- Sidebar de review en <leader>s (top-level): <leader>rs quedó para "split".
-  -- Override-able con opts.sidebar_key.
+  -- Review sidebar on <leader>s (top-level): <leader>rs was left for "split".
+  -- Overridable with opts.sidebar_key.
   local keymap_lhs = opts.sidebar_key or "<leader>s"
   vim.keymap.set("n", keymap_lhs, toggle, { desc = "Review: sidebar toggle changed/all" })
 
@@ -226,10 +226,10 @@ function M.setup(core, opts)
     core.events.on("comments:changed", function()
       M._refresh()
     end)
-    -- Al cambiar la base de comparación, si el árbol "changed" (git_status) está
-    -- visible, re-aplicar la base y renavegar (misma vía única que todo lo demás).
+    -- When the comparison base changes, if the "changed" tree (git_status) is
+    -- visible, re-apply the base and re-navigate (same single path as everything else).
     core.events.on("base:changed", function()
-      -- Re-aplicar la base al modo del árbol que esté a la vista (changed o all).
+      -- Re-apply the base to whichever tree mode is in view (changed or all).
       local src = open_source()
       if src ~= "git_status" and src ~= "filesystem" then return end
       M.neotree_exec({ source = src, action = "show", position = "right" })
@@ -238,9 +238,9 @@ function M.setup(core, opts)
   end
 end
 
---- Marcador textual para un relpath, pensado para enganchar en un renderer
---- custom de neo-tree (ver docs/plans/04-sidebar.md Task 4). Se basa en el
---- último cache calculado por M._refresh(); si nunca corrió, lo calcula ahora.
+--- Text marker for a relpath, meant to hook into a custom neo-tree
+--- renderer (see docs/plans/04-sidebar.md Task 4). It relies on the
+--- last cache computed by M._refresh(); if it never ran, it computes it now.
 --- @param relpath string
 --- @return string|nil
 function M.comment_marker(relpath)

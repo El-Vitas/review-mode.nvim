@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# E2E runner: repo sintético + config real de nvim + scripts e2e. Repetible.
-# Cada script corre con su propio fixture y con XDG_STATE_HOME aislado (no toca
-# las sesiones reales del usuario). Verifica además que el repo NO se modifique
-# (salvo split_hard.lua, que commitea su propio archivo de prueba).
-# Uso: run.sh [script.lua ...]   (sin argumentos: todos). Exit != 0 si hay fails.
+# E2E runner: synthetic repo + the real nvim config + e2e scripts. Repeatable.
+# Each script runs with its own fixture and an isolated XDG_STATE_HOME (it does
+# not touch the user's real sessions). It also verifies that the repo is NOT
+# modified (except split_hard.lua, which commits its own test file).
+# Usage: run.sh [script.lua ...]   (no arguments: all). Exit != 0 on failures.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INIT="${REVIEW_E2E_INIT:-$HOME/.config/nvim/init.lua}"
 SCRIPTS=("$@")
 [ ${#SCRIPTS[@]} -eq 0 ] && SCRIPTS=(driver.lua split_reentry.lua split_hard.lua split_windows.lua split_markdown.lua folder_click.lua)
-# Estos commitean sus propios archivos de prueba en el fixture: el HEAD cambia.
+# These commit their own test files into the fixture: HEAD changes.
 COMMITS_IN_FIXTURE=" split_hard.lua split_markdown.lua "
 
 TOTAL_FAIL=0
@@ -20,8 +20,8 @@ for script in "${SCRIPTS[@]}"; do
   snap() { { git status --porcelain | sort; git rev-parse HEAD; git rev-parse --abbrev-ref HEAD; git diff --cached --name-status | sort; }; }
   BEFORE="$(snap)"
 
-  # Sin UI (headless) lazy.nvim nunca dispara VeryLazy: se dispara a mano para
-  # reproducir el arranque real (which-key, lualine, lsp-file-operations…).
+  # Without a UI (headless) lazy.nvim never fires VeryLazy: it is fired by hand to
+  # reproduce the real startup (which-key, lualine, lsp-file-operations…).
   timeout 240 env XDG_STATE_HOME="$STATE" REVIEW_E2E_DIR="$DIR" REVIEW_E2E_C0="$C0" REVIEW_E2E_C1="$C1" \
     REVIEW_E2E_OUT="$RESULTS" \
     nvim --headless --cmd "set noexrc" -u "$INIT" "$DIR/src/keep.ts" \
@@ -32,9 +32,9 @@ for script in "${SCRIPTS[@]}"; do
   popd >/dev/null
   NOK="$(grep -c '^ok ' "$RESULTS")"; NFAIL="$(grep -c '^FAIL ' "$RESULTS")"; DERR="$(grep -c 'DRIVER-ERROR' "$RESULTS")"
   grep -E '^(FAIL|DRIVER-ERROR)' "$RESULTS"
-  RO="intacto"
-  if [ "$BEFORE" != "$AFTER" ] && [[ "$COMMITS_IN_FIXTURE" != *" $script "* ]]; then RO="MODIFICADO"; NFAIL=$((NFAIL + 1)); fi
-  [ "$NOK" = "0" ] && [ "$NFAIL" = "0" ] && [ "$DERR" = "0" ] && { echo "SIN RESULTADOS (¿hang/timeout?)"; NFAIL=1; }
+  RO="unchanged"
+  if [ "$BEFORE" != "$AFTER" ] && [[ "$COMMITS_IN_FIXTURE" != *" $script "* ]]; then RO="MODIFIED"; NFAIL=$((NFAIL + 1)); fi
+  [ "$NOK" = "0" ] && [ "$NFAIL" = "0" ] && [ "$DERR" = "0" ] && { echo "NO RESULTS (hang/timeout?)"; NFAIL=1; }
   echo "── $script: ok=$NOK fail=$NFAIL driver_errors=$DERR repo=$RO"
   TOTAL_FAIL=$((TOTAL_FAIL + NFAIL + DERR))
   rm -rf "$DIR" "$STATE" "$RESULTS"

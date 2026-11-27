@@ -1,32 +1,32 @@
--- Vista SPLIT global (2 columnas), estilo VSCode, usando el MODO DIFF NATIVO.
--- Hay UNA sola sesión de split: un panel HEAD a la izquierda (scratch readonly,
--- con `winfixbuf` para que NO se le puedan abrir archivos) y la ventana real de
--- edición a la derecha. Al cambiar de archivo en la ventana real, el panel HEAD
--- se actualiza al HEAD de ese archivo (o se cierra si el archivo no tiene HEAD).
+-- Global SPLIT view (2 columns), VSCode style, using the NATIVE DIFF MODE.
+-- There is a SINGLE split session: a HEAD panel on the left (readonly scratch,
+-- with `winfixbuf` so files can NOT be opened in it) and the real editing
+-- window on the right. When switching files in the real window, the HEAD panel
+-- updates to that file's HEAD (or closes if the file has no HEAD).
 local diff = require("review.features.views.diff")
 
 local M = {}
 M._session = nil -- { left_win, buf = <scratch>, main_win }
 
--- ── Alineación con WRAP ("padding virtual") ────────────────────────────────
--- El modo diff nativo alinea por NÚMERO DE LÍNEA (+filler para altas/bajas),
--- pero NO por filas de PANTALLA: una línea larga envuelve en más filas de un
--- lado que del otro → todo lo de abajo se desincroniza. Solución: para cada
--- bloque de diff, calculamos cuántas filas de pantalla ocupa a cada lado (alto
--- de wrap + filler nativo) y rellenamos el lado más corto con líneas VIRTUALES
--- (extmarks virt_lines) para que ambos bloques midan lo mismo. Así el contexto
--- que sigue vuelve a quedar alineado fila-a-fila. Se recalcula al entrar a
--- split, al editar y al cambiar el ancho (sidebar, resize).
+-- ── WRAP alignment ("virtual padding") ─────────────────────────────────────
+-- The native diff mode aligns by LINE NUMBER (+filler for additions/deletions),
+-- but NOT by SCREEN rows: a long line wraps into more rows on one
+-- side than the other → everything below gets out of sync. Solution: for each
+-- diff block, we compute how many screen rows it takes on each side (wrap
+-- height + native filler) and pad the shorter side with VIRTUAL lines
+-- (virt_lines extmarks) so both blocks have the same height. That way the context
+-- that follows is aligned row-to-row again. It is recomputed when entering
+-- split, when editing and when the width changes (sidebar, resize).
 local PAD_NS = vim.api.nvim_create_namespace("review_split_pad")
 
--- Columnas de TEXTO reales de una ventana (ancho menos number/sign/fold).
+-- Real TEXT columns of a window (width minus number/sign/fold).
 local function text_width(win)
   local info = vim.fn.getwininfo(win)[1]
   if not info then return 80 end
   return math.max(1, info.width - (info.textoff or 0))
 end
 
--- Filas de pantalla que ocupa `text` envuelto en `tw` columnas.
+-- Screen rows taken by `text` wrapped at `tw` columns.
 local function wrap_rows(text, tw)
   local w = vim.fn.strdisplaywidth(text)
   if w <= 0 then return 1 end
@@ -39,7 +39,7 @@ local function clear_pad(buf)
   end
 end
 
--- Añade `n` filas virtuales DEBAJO de la línea `lnum0` (0-based) de `buf`.
+-- Adds `n` virtual rows BELOW line `lnum0` (0-based) of `buf`.
 local function add_pad(buf, lnum0, n)
   if n <= 0 or not (buf and vim.api.nvim_buf_is_valid(buf)) then return end
   local last = vim.api.nvim_buf_line_count(buf) - 1
@@ -49,7 +49,7 @@ local function add_pad(buf, lnum0, n)
   pcall(vim.api.nvim_buf_set_extmark, buf, PAD_NS, lnum0, 0, { virt_lines = vl })
 end
 
---- Recalcula el padding virtual de la sesión de split actual (idempotente).
+--- Recomputes the virtual padding of the current split session (idempotent).
 function M.repad()
   local s = M._session
   if not s then return end
@@ -60,7 +60,7 @@ function M.repad()
   if not (vim.api.nvim_buf_is_valid(lbuf) and vim.api.nvim_buf_is_valid(rbuf)) then return end
   clear_pad(lbuf)
   clear_pad(rbuf)
-  -- Sin wrap el padding no aplica (las líneas largas no envuelven): solo limpiar.
+  -- Without wrap the padding does not apply (long lines do not wrap): just clear.
   if not (vim.wo[lw].wrap and vim.wo[rw].wrap) then return end
 
   local head = s.head or {}
@@ -74,16 +74,16 @@ function M.repad()
 
   for _, h in ipairs(hunks) do
     local sa, ca, sb, cb = h[1], h[2], h[3], h[4]
-    -- Filas de pantalla del bloque a cada lado (wrap real + filler nativo, que
-    -- expande ambos lados a max(ca,cb) líneas de buffer, 1 fila por filler).
+    -- Screen rows of the block on each side (real wrap + native filler, which
+    -- expands both sides to max(ca,cb) buffer lines, 1 row per filler).
     local rowsL, rowsR = 0, 0
     for i = sa, sa + ca - 1 do rowsL = rowsL + wrap_rows(head[i] or "", twl) end
     for i = sb, sb + cb - 1 do rowsR = rowsR + wrap_rows(edit[i] or "", twr) end
-    rowsL = rowsL + math.max(0, cb - ca) -- filler nativo en la IZQUIERDA
-    rowsR = rowsR + math.max(0, ca - cb) -- filler nativo en la DERECHA
+    rowsL = rowsL + math.max(0, cb - ca) -- native filler on the LEFT
+    rowsR = rowsR + math.max(0, ca - cb) -- native filler on the RIGHT
     local delta = rowsL - rowsR
-    if delta > 0 then -- la derecha es más corta → rellenar derecha al final del bloque
-      local anchor = (cb > 0) and (sb + cb - 2) or (sb - 1) -- 0-based, debajo de la última línea del bloque
+    if delta > 0 then -- the right is shorter → pad the right at the end of the block
+      local anchor = (cb > 0) and (sb + cb - 2) or (sb - 1) -- 0-based, below the last line of the block
       add_pad(rbuf, anchor, delta)
     elseif delta < 0 then
       local anchor = (ca > 0) and (sa + ca - 2) or (sa - 1)
@@ -92,7 +92,7 @@ function M.repad()
   end
 end
 
--- Alinea línea-a-línea estilo VSCode (linematch/histogram), preservando flags.
+-- Aligns line-by-line VSCode style (linematch/histogram), preserving flags.
 local function ensure_diffopt()
   local parts = vim.split(vim.o.diffopt, ",", { trimempty = true })
   local has = {}
@@ -103,11 +103,11 @@ local function ensure_diffopt()
   if not has["linematch"] then add[#add + 1] = "linematch:60" end
   if not has["algorithm"] then add[#add + 1] = "algorithm:histogram" end
   if not has["indent-heuristic"] then add[#add + 1] = "indent-heuristic" end
-  if not has["inline"] then add[#add + 1] = "inline:char" end -- resaltar el texto exacto que cambió
+  if not has["inline"] then add[#add + 1] = "inline:char" end -- highlight the exact text that changed
   if #add > 0 then vim.o.diffopt = vim.o.diffopt .. "," .. table.concat(add, ",") end
 end
 
--- ¿Dos listas de líneas son idénticas?
+-- Are two lists of lines identical?
 local function same_lines(a, b)
   if #a ~= #b then return false end
   for i = 1, #a do
@@ -116,23 +116,23 @@ local function same_lines(a, b)
   return true
 end
 
---- ¿Es `bufnr` el scratch del panel HEAD?
+--- Is `bufnr` the scratch of the HEAD panel?
 function M.is_scratch(bufnr)
   return M._session ~= nil and M._session.buf == bufnr
 end
 
---- Ventana de EDICIÓN de la sesión de split (la real, no el panel HEAD), o nil.
+--- EDITING window of the split session (the real one, not the HEAD panel), or nil.
 function M.main_win()
   local s = M._session
   if s and s.main_win and vim.api.nvim_win_is_valid(s.main_win) then return s.main_win end
 end
 
--- Fuerza TODAS las líneas visibles (sin folds de diff que compactan lo que no
--- cambió) + relleno diagonal, en una ventana en modo diff.
+-- Forces ALL lines visible (no diff folds collapsing what did not
+-- change) + diagonal fill, in a window in diff mode.
 local function open_all_folds(win)
   if win and vim.api.nvim_win_is_valid(win) then
-    -- `[0]` = local a la ventana (`:setlocal`): sin él también cambia el valor
-    -- global y todas las ventanas nuevas heredan estos folds.
+    -- `[0]` = local to the window (`:setlocal`): without it the global value
+    -- changes too and all new windows inherit these folds.
     pcall(function()
       vim.wo[win][0].foldenable = false
       vim.wo[win][0].foldlevel = 99
@@ -141,8 +141,8 @@ local function open_all_folds(win)
   end
 end
 
--- Apaga el diff de la ventana `w` (para el buffer que muestra AHORA) y le
--- devuelve las opciones de fold/fillchars/resaltado guardadas al armar el par.
+-- Turns off the diff of window `w` (for the buffer it shows NOW) and gives back
+-- the fold/fillchars/highlight options saved when the pair was built.
 local function diffoff_restore(w, sv)
   pcall(vim.api.nvim_win_call, w, function() vim.cmd("diffoff") end)
   pcall(function()
@@ -156,15 +156,15 @@ local function diffoff_restore(w, sv)
   end)
 end
 
--- Diffs que quedaron puestos en un buffer que ya no se muestra en su ventana:
--- [win][buf] = opciones guardadas. 'diff' y las opciones de ventana se guardan
--- POR BUFFER: si el par se desarma porque la ventana pasó a mostrar otro
--- archivo, el `diffoff` apaga el diff del archivo nuevo, y el del anterior
--- vuelve encendido cuando ese archivo regresa a la ventana. Solo se anotan los
--- diffs que puso el split, para no tocar un `:diffthis` del usuario.
+-- Diffs left on in a buffer that is no longer shown in its window:
+-- [win][buf] = saved options. 'diff' and the window options are saved
+-- PER BUFFER: if the pair is torn down because the window switched to showing another
+-- file, `diffoff` turns off the new file's diff, and the previous one's
+-- comes back on when that file returns to the window. Only the
+-- diffs set by the split are recorded, so a user's `:diffthis` is left alone.
 M._stale = {}
 
---- Si `buf` vuelve a `win` con un diff que dejó el split, lo apaga.
+--- If `buf` returns to `win` with a diff left by the split, turns it off.
 function M.clear_stale(win, buf)
   local per_win = M._stale[win]
   local sv = per_win and per_win[buf]
@@ -175,20 +175,20 @@ function M.clear_stale(win, buf)
   end
 end
 
---- Olvida lo anotado para una ventana que se cerró.
+--- Forgets what was recorded for a window that was closed.
 function M.forget_win(win) M._stale[win] = nil end
 
--- Saca el diff de la ventana real y restaura sus opciones de fold/fillchars.
+-- Removes the diff from the real window and restores its fold/fillchars options.
 local function restore_main(s)
   local w = s.main_win
   if not (w and vim.api.nvim_win_is_valid(w)) then return end
-  -- Limpiar el padding virtual del buffer REAL (el scratch se wipea solo, pero
-  -- el archivo verdadero conserva sus extmarks si no los borramos acá).
+  -- Clear the virtual padding of the REAL buffer (the scratch wipes itself, but
+  -- the actual file keeps its extmarks if we do not delete them here).
   local cur = vim.api.nvim_win_get_buf(w)
   clear_pad(cur)
   if s.main_buf and s.main_buf ~= cur then
-    -- La ventana ya muestra otro archivo: el diff del archivo del par sigue
-    -- guardado en esta ventana. Se apaga cuando ese archivo vuelva (clear_stale).
+    -- The window already shows another file: the pair file's diff is still
+    -- stored in this window. It is turned off when that file comes back (clear_stale).
     if vim.api.nvim_buf_is_valid(s.main_buf) then clear_pad(s.main_buf) end
     M._stale[w] = M._stale[w] or {}
     M._stale[w][s.main_buf] = s.saved or {}
@@ -196,14 +196,14 @@ local function restore_main(s)
   diffoff_restore(w, s.saved)
 end
 
---- Cierra la columna HEAD sin que Neovim recalcule el diff EN MEDIO del cierre.
---- `:diffoff` deja el diff de la pestaña invalidado, y al cerrar una ventana
---- Neovim redimensiona la vecina, ve el diff invalidado y corre :diffupdate,
---- que dispara DiffUpdated mientras la lista de ventanas está a medio cambiar.
---- Un callback que consulta ventanas ahí (render-markdown llama a win_findbuf)
---- hacía caer a Neovim con SIGSEGV. Por eso: diff apagado también en esta
---- ventana, recálculo en un momento seguro, y DiffUpdated ignorado solo
---- durante el cierre. Ver docs/decisions.md (B19).
+--- Closes the HEAD column without Neovim recomputing the diff IN THE MIDDLE of the close.
+--- `:diffoff` leaves the tab's diff invalidated, and when closing a window
+--- Neovim resizes the neighbor, sees the invalidated diff and runs :diffupdate,
+--- which fires DiffUpdated while the window list is half-changed.
+--- A callback that queries windows there (render-markdown calls win_findbuf)
+--- made Neovim crash with SIGSEGV. Hence: diff also turned off in this
+--- window, recompute at a safe moment, and DiffUpdated ignored only
+--- during the close. See docs/decisions.md (B19).
 local function close_head_win(win)
   if not (win and vim.api.nvim_win_is_valid(win)) then return end
   pcall(vim.api.nvim_win_call, win, function() vim.cmd("diffoff") end)
@@ -214,12 +214,12 @@ local function close_head_win(win)
   vim.go.eventignore = ei
 end
 
--- Guardia para un cierre que NO hace este plugin (`:q` del usuario sobre una
--- ventana en modo diff): Neovim invalida el diff al cerrarla y corre
--- :diffupdate en medio del cierre (mismo SIGSEGV que close_head_win). Se llama
--- desde WinClosed, que corre antes de sacar la ventana del layout; DiffUpdated
--- queda ignorado hasta el próximo tick y después se recalcula normal. Al
--- restaurar se saca solo la entrada propia de 'eventignore'.
+-- Guard for a close NOT made by this plugin (the user's `:q` on a
+-- window in diff mode): Neovim invalidates the diff when closing it and runs
+-- :diffupdate in the middle of the close (same SIGSEGV as close_head_win). It is called
+-- from WinClosed, which runs before the window is removed from the layout; DiffUpdated
+-- stays ignored until the next tick and is then recomputed normally. When
+-- restoring, only our own entry is removed from 'eventignore'.
 local guarding = false
 function M.guard_diff_close()
   if guarding then return end
@@ -236,7 +236,7 @@ function M.guard_diff_close()
   end)
 end
 
---- Cierra la sesión de split (saca el diff de la ventana real y cierra el HEAD).
+--- Closes the split session (removes the diff from the real window and closes the HEAD).
 function M.teardown()
   local s = M._session
   M._session = nil
@@ -245,9 +245,9 @@ function M.teardown()
   close_head_win(s.left_win)
 end
 
--- Crea el panel HEAD (izquierda) para la ventana `main_win`.
+-- Creates the HEAD panel (left) for window `main_win`.
 local function create_pane(main_win)
-  -- Guardar opciones de fold/fillchars de la ventana real para restaurarlas.
+  -- Save the fold/fillchars options of the real window to restore them.
   local saved = {
     fe = vim.wo[main_win].foldenable,
     fl = vim.wo[main_win].foldlevel,
@@ -262,23 +262,23 @@ local function create_pane(main_win)
   vim.bo[scratch].buftype = "nofile"
   vim.bo[scratch].bufhidden = "wipe"
   vim.api.nvim_win_set_buf(left_win, scratch)
-  pcall(function() vim.wo[left_win][0].winfixbuf = true end) -- no abrir archivos acá
+  pcall(function() vim.wo[left_win][0].winfixbuf = true end) -- do not open files here
   return { left_win = left_win, buf = scratch, main_win = main_win, saved = saved }
 end
 
---- Maneja el cierre manual de una de las ventanas del split: si se cierra el
---- panel HEAD o la ventana de edición, saca el diff de la que quede y limpia la
---- sesión (así no queda una columna pegada en modo diff). Los cierres que hace
---- el propio plugin (teardown) no llegan acá: sueltan la sesión antes de cerrar.
---- @return boolean true si la ventana cerrada era del par
+--- Handles the manual close of one of the split windows: if the HEAD
+--- panel or the editing window is closed, removes the diff from the remaining one and cleans up the
+--- session (so no column is left stuck in diff mode). Closes done by
+--- the plugin itself (teardown) do not get here: they drop the session before closing.
+--- @return boolean true if the closed window belonged to the pair
 function M.on_win_closed(win)
   local s = M._session
   if not s then return false end
   if win ~= s.left_win and win ~= s.main_win then return false end
   M._session = nil
   local is_left = (win == s.left_win)
-  -- Diferir: no se pueden cerrar/modificar ventanas DENTRO del autocmd WinClosed
-  -- (Neovim aborta con E855). Lo hacemos en el próximo tick.
+  -- Defer: windows cannot be closed/modified INSIDE the WinClosed autocmd
+  -- (Neovim aborts with E855). We do it on the next tick.
   vim.schedule(function()
     if is_left then
       restore_main(s)
@@ -289,31 +289,31 @@ function M.on_win_closed(win)
   return true
 end
 
---- Sincroniza el panel HEAD con el archivo de la ventana ACTUAL (la de edición).
---- Crea la sesión si hace falta; la cierra si el archivo no tiene HEAD o no está
---- en el repo (queda en una sola columna).
+--- Syncs the HEAD panel with the file of the CURRENT window (the editing one).
+--- Creates the session if needed; closes it if the file has no HEAD or is not
+--- in the repo (it stays as a single column).
 local WH_DEL = "DiffChange:ReviewDiffChange,DiffText:ReviewDiffDelText,DiffAdd:ReviewDiffDelLine,DiffDelete:ReviewDiffFiller"
 local WH_ADD = "DiffChange:ReviewDiffChange,DiffText:ReviewDiffAddText,DiffAdd:ReviewDiffAddLine,DiffDelete:ReviewDiffFiller"
 
 function M.sync(core)
   local cur = vim.api.nvim_get_current_win()
   local s = M._session
-  if s and cur == s.left_win then return end -- no actuar desde el panel HEAD
+  if s and cur == s.left_win then return end -- do not act from the HEAD panel
 
   local buf = vim.api.nvim_win_get_buf(cur)
-  if vim.bo[buf].buftype ~= "" then return end -- ventana especial
+  if vim.bo[buf].buftype ~= "" then return end -- special window
 
   local rel = core.git.rel_path(buf)
   if not rel then M.teardown(); return end
 
-  -- REUSO del MISMO archivo: ya está diffeado. NO re-diffear (el diff nativo se
-  -- actualiza solo al editar; re-diffear sobre las mismas ventanas lo corrompe
-  -- —marca todo como cambiado— y además es lento). Solo cerramos si el archivo
-  -- volvió a quedar idéntico a HEAD. Barato: sin git, sin re-diff.
+  -- REUSE of the SAME file: it is already diffed. Do NOT re-diff (the native diff
+  -- updates itself while editing; re-diffing over the same windows corrupts it
+  -- —marks everything as changed— and is also slow). We only close if the file
+  -- became identical to HEAD again. Cheap: no git, no re-diff.
   if s and s.rel == rel and s.head
       and s.left_win and vim.api.nvim_win_is_valid(s.left_win)
       and s.main_win and vim.api.nvim_win_is_valid(s.main_win) then
-    -- Barato: si el buffer no cambió desde el último sync, no hacer nada.
+    -- Cheap: if the buffer has not changed since the last sync, do nothing.
     local tick = vim.api.nvim_buf_get_changedtick(buf)
     if tick ~= s.tick then
       s.tick = tick
@@ -324,21 +324,21 @@ function M.sync(core)
     return
   end
 
-  -- Archivo nuevo o sin sesión válida: preparar setup FRESCO.
+  -- New file or no valid session: prepare a FRESH setup.
   local head = core.git.head_content(rel, core.git.root(buf))
-  if not head then M.teardown(); return end -- sin HEAD (archivo nuevo): una columna
+  if not head then M.teardown(); return end -- no HEAD (new file): one column
   if same_lines(head, vim.api.nvim_buf_get_lines(buf, 0, -1, false)) then
-    M.teardown(); return -- sin cambios: una columna
+    M.teardown(); return -- no changes: one column
   end
 
-  M.teardown() -- cerrar sesión previa (de otro archivo) si la hubiera
+  M.teardown() -- close the previous session (from another file) if there was one
   ensure_diffopt()
 
   local sess = create_pane(cur)
   sess.rel = rel
   sess.head = head
   sess.tick = vim.api.nvim_buf_get_changedtick(buf)
-  sess.main_buf = buf -- el archivo del par (la ventana puede pasar a mostrar otro)
+  sess.main_buf = buf -- the pair's file (the window may switch to showing another)
   M._session = sess
 
   -- Scratch = contenido HEAD.
@@ -350,17 +350,17 @@ function M.sync(core)
   local ft = vim.bo[buf].filetype
   if ft and ft ~= "" then vim.bo[scratch].filetype = ft end
   pcall(vim.api.nvim_buf_set_name, scratch, "review://head/" .. rel)
-  pcall(vim.treesitter.start, scratch) -- mismo resaltado que la derecha
+  pcall(vim.treesitter.start, scratch) -- same highlighting as the right
 
-  -- Diff nativo (scratch fresco). diffoff! limpia CUALQUIER estado de diff
-  -- residual del tab (si no, tras un switch el diff desalinea y marca todo).
+  -- Native diff (fresh scratch). diffoff! clears ANY residual diff state
+  -- of the tab (otherwise, after a switch the diff misaligns and marks everything).
   pcall(vim.api.nvim_win_call, cur, function() vim.cmd("diffoff!") end)
   pcall(vim.api.nvim_win_call, sess.left_win, function() vim.cmd("diffthis") end)
   pcall(vim.api.nvim_win_call, cur, function() vim.cmd("diffthis") end)
   open_all_folds(sess.left_win)
   open_all_folds(cur)
-  -- El modo diff apaga `wrap`. Respetar la preferencia del usuario (<leader>w);
-  -- por defecto wrapeado.
+  -- Diff mode turns off `wrap`. Respect the user's preference (<leader>w);
+  -- wrapped by default.
   local wrap = vim.g.review_wrap ~= false
   pcall(function() vim.wo[sess.left_win][0].wrap = wrap end)
   pcall(function() vim.wo[cur][0].wrap = wrap end)
@@ -368,8 +368,8 @@ function M.sync(core)
   pcall(function() vim.wo[cur][0].winhighlight = WH_ADD end)
   vim.api.nvim_set_current_win(cur)
   pcall(vim.cmd, "diffupdate")
-  -- Alinear filas de pantalla (wrap) con padding virtual. Diferido: las alturas
-  -- de wrap dependen del ancho ya asentado de las ventanas.
+  -- Align screen rows (wrap) with virtual padding. Deferred: the wrap heights
+  -- depend on the windows' already-settled width.
   if wrap then vim.schedule(M.repad) end
 end
 

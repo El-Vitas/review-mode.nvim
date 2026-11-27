@@ -1,7 +1,7 @@
 local M = {}
 
--- Visibilidad global de los comentarios (toggle shown/hidden). Cuando está en
--- true, `render` limpia y no pinta nada.
+-- Global visibility of comments (shown/hidden toggle). When it is
+-- true, `render` clears and paints nothing.
 M.hidden = false
 
 local function clamp(bufnr, lnum)
@@ -19,13 +19,13 @@ function M.render(core, bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, core.ns.comments, 0, -1)
   if M.hidden then return end
 
-  -- Orden estable por línea para poder ALTERNAR el tono de fondo entre
-  -- comentarios consecutivos (así dos comentarios pegados no se ven como uno).
-  -- Las respuestas (reply_to) NO se pintan como comentarios independientes:
-  -- viven dentro del hilo de su padre (peek). Solo se pinta el top-level.
+  -- Stable order by line so the background tone can ALTERNATE between
+  -- consecutive comments (so two adjacent comments do not look like one).
+  -- Replies (reply_to) are NOT painted as independent comments:
+  -- they live inside their parent's thread (peek). Only the top-level is painted.
   local comments = {}
   for _, c in ipairs(core.state.for_path(rel)) do
-    -- Los file_level NO van pegados a una línea: se pintan aparte, al final.
+    -- file_level comments are NOT attached to a line: they are painted separately, at the end.
     if not c.reply_to and not c.file_level then comments[#comments + 1] = c end
   end
   table.sort(comments, function(a, b) return (a.lnum or 0) < (b.lnum or 0) end)
@@ -36,16 +36,16 @@ function M.render(core, bufnr)
     if end_lnum < lnum then lnum, end_lnum = end_lnum, lnum end
     local row = lnum - 1
     local text = c.text or ""
-    -- Badge compacto de una línea (colapsa saltos). Corto a propósito: el texto
-    -- completo se lee en el peek flotante (<leader>rp), no arrastrando una tira
-    -- larga al final de la línea.
+    -- Compact one-line badge (collapses line breaks). Short on purpose: the full
+    -- text is read in the floating peek (<leader>rp), instead of dragging a long
+    -- strip at the end of the line.
     text = text:gsub("[\r\n]+", " ")
     if #text > 100 then text = text:sub(1, 98) .. "…" end
 
     local resolved = c.resolved
     local is_agent = c.author and c.author ~= "user"
-    local alt = (idx % 2 == 0) -- tono de fondo alternado para separar consecutivos
-    -- Prioridad de fondo: resuelto > stale > agente > normal (alternado).
+    local alt = (idx % 2 == 0) -- alternating background tone to separate consecutive ones
+    -- Background priority: resolved > stale > agent > normal (alternating).
     local line_hl, badge_hl, edge_hl
     if resolved then
       line_hl = "ReviewCommentLineResolved"
@@ -70,22 +70,22 @@ function M.render(core, bufnr)
     elseif is_agent then icon = "🤖"
     else icon = "💬" end
     if c.stale then icon = "⚠ " .. icon end
-    -- Sufijo con la cantidad de respuestas (threading).
+    -- Suffix with the number of replies (threading).
     local nrep = #core.state.replies(c.id)
     local suffix = nrep > 0 and (" ↩" .. nrep) or ""
 
-    -- Extmark ANCLA (primera línea): lleva end_row para rastrear el rango al
-    -- editar, el resaltado de línea y un BADGE con fondo y bordecito al final.
-    -- Es el que usa sync_positions; para 1 línea, el único.
-    -- (Los corchetes anidados de la izquierda los dibuja el statuscolumn — ver
-    -- gutter.lua — porque la columna de signos solo admite 1 signo por línea.)
-    -- El badge va como LÍNEA VIRTUAL propia ARRIBA del bloque (no como virt_text
-    -- pegado al eol): así es un "header" que no se puede editar, el cursor lo
-    -- saltea (es virtual, no es línea real) y queda bien asociado al código de
-    -- abajo. Permite mostrar más caracteres que el chip anterior.
-    -- priority BAJA para el fondo de línea: así la `cursorline` (línea actual)
-    -- gana sobre el fondo del comentario y NO te pierdes dentro de un comentario.
-    -- (El default de line_hl_group es 4096, que tapa la cursorline.)
+    -- ANCHOR extmark (first line): carries end_row to track the range while
+    -- editing, the line highlight and a BADGE with a background and a small edge at the end.
+    -- It is the one sync_positions uses; for 1 line, the only one.
+    -- (The nested brackets on the left are drawn by the statuscolumn — see
+    -- gutter.lua — because the sign column only supports 1 sign per line.)
+    -- The badge goes as its own VIRTUAL LINE ABOVE the block (not as virt_text
+    -- stuck to the eol): that way it is a "header" that cannot be edited, the cursor
+    -- skips it (it is virtual, not a real line) and it stays well associated with the
+    -- code below. It allows showing more characters than the previous chip.
+    -- LOW priority for the line background: so the `cursorline` (current line)
+    -- wins over the comment background and you do NOT get lost inside a comment.
+    -- (The default for line_hl_group is 4096, which covers the cursorline.)
     local id = vim.api.nvim_buf_set_extmark(bufnr, core.ns.comments, row, 0, {
       end_row = end_lnum - 1,
       line_hl_group = line_hl,
@@ -101,7 +101,7 @@ function M.render(core, bufnr)
     })
     c._extmark_id = id
 
-    -- Líneas de continuación: mismo fondo (el borde/corchete lo pinta el gutter).
+    -- Continuation lines: same background (the border/bracket is painted by the gutter).
     for r = row + 1, end_lnum - 1 do
       vim.api.nvim_buf_set_extmark(bufnr, core.ns.comments, r, 0, {
         line_hl_group = line_hl,
@@ -110,14 +110,14 @@ function M.render(core, bufnr)
     end
   end
 
-  -- Comentarios de ARCHIVO (file_level): tarjetas ABAJO DEL TODO (debajo de la
-  -- última línea). No pertenecen a ninguna línea → no llevan _extmark_id ni
-  -- anchor_text, así que sync_positions/relocate/reconcile los ignoran.
+  -- FILE comments (file_level): cards at the VERY BOTTOM (below the
+  -- last line). They belong to no line → they carry no _extmark_id or
+  -- anchor_text, so sync_positions/relocate/reconcile ignore them.
   M.render_file_comments(core, bufnr, rel)
 end
 
---- Pinta las tarjetas de los comentarios de archivo como líneas virtuales
---- debajo de la última línea del buffer. Idempotente (render() ya limpió el ns).
+--- Paints the file-comment cards as virtual lines
+--- below the last line of the buffer. Idempotent (render() already cleared the ns).
 function M.render_file_comments(core, bufnr, rel)
   rel = rel or core.git.rel_path(bufnr)
   if not rel then return end
@@ -153,7 +153,7 @@ function M.render_file_comments(core, bufnr, rel)
     }
   end
   local last = vim.api.nvim_buf_line_count(bufnr)
-  -- virt_lines por defecto van DEBAJO de la línea ancla → abajo del todo.
+  -- virt_lines go BELOW the anchor line by default → at the very bottom.
   vim.api.nvim_buf_set_extmark(bufnr, core.ns.comments, last - 1, 0, { virt_lines = vlines })
 end
 
@@ -164,7 +164,7 @@ function M.sync_positions(core, bufnr)
   local comments = core.state.for_path(rel)
   for _, c in ipairs(comments) do
     if c._extmark_id then
-      -- `details=true` para recuperar `end_row` y preservar el rango.
+      -- `details=true` to recover `end_row` and preserve the range.
       local ok, pos = pcall(vim.api.nvim_buf_get_extmark_by_id, bufnr, core.ns.comments, c._extmark_id, { details = true })
       if ok and pos and pos[1] then
         local new_lnum = clamp(bufnr, pos[1] + 1)
@@ -182,12 +182,12 @@ function M.sync_positions(core, bufnr)
   end
 end
 
---- Re-localiza los comentarios por CONTENIDO (`anchor_text`) — pensada para
---- correr al ABRIR un archivo que pudo cambiar en disco mientras estaba cerrado
---- (ahí no hubo extmarks que sigan el movimiento). Para cada comentario con
---- `anchor_text`: si la línea guardada ya no coincide, busca la ocurrencia más
---- cercana de ese texto en el buffer y reubica (arrastra `end_lnum` el mismo
---- delta); si no la encuentra, lo marca `stale`. No-op fuera del repo.
+--- Re-locates comments by CONTENT (`anchor_text`) — meant to
+--- run when OPENING a file that may have changed on disk while it was closed
+--- (there were no extmarks to follow the movement). For each comment with
+--- `anchor_text`: if the saved line no longer matches, it looks for the nearest
+--- occurrence of that text in the buffer and relocates (shifting `end_lnum` by the same
+--- delta); if it does not find it, it marks it `stale`. No-op outside the repo.
 function M.relocate(core, bufnr)
   local rel = core.git.rel_path(bufnr)
   if not rel then return end
@@ -219,10 +219,10 @@ function M.relocate(core, bufnr)
   end
 end
 
---- Re-sincroniza posiciones desde los extmarks y marca `stale` los comentarios
---- cuya línea anclada dejó de coincidir con su `anchor_text` (malla de seguridad
---- tras un cambio de código en disco). Des-marca los que volvieron a coincidir.
---- No-op si el buffer está fuera del repo.
+--- Re-syncs positions from the extmarks and marks as `stale` the comments
+--- whose anchored line stopped matching their `anchor_text` (safety net
+--- after a code change on disk). Unmarks those that matched again.
+--- No-op if the buffer is outside the repo.
 function M.reconcile(core, bufnr)
   local rel = core.git.rel_path(bufnr)
   if not rel then return end
@@ -237,8 +237,8 @@ function M.reconcile(core, bufnr)
       if row >= 0 and row < last then
         now = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
       end
-      -- coincide si la línea actual iguala el texto ancla (tolerante a
-      -- reindentación/espacios: comparamos trims).
+      -- it matches if the current line equals the anchor text (tolerant of
+      -- re-indentation/whitespace: we compare trims).
       local matches = vim.trim(now) == vim.trim(c.anchor_text)
       if matches and c.stale then
         core.state.update(c.id, { stale = false })

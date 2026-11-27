@@ -1,36 +1,36 @@
 local inline = require("review.features.views.inline")
 local split = require("review.features.views.split")
 
--- Modo de vista GLOBAL (estilo VSCode): el modo (normal/inline/split) aplica a
--- TODOS los archivos. Al entrar a un archivo se re-aplica el modo actual; en
--- split, ambas columnas siguen al archivo activo.
+-- GLOBAL view mode (VSCode style): the mode (normal/inline/split) applies to
+-- ALL files. When entering a file the current mode is re-applied; in
+-- split, both columns follow the active file.
 local M = {}
--- Review es un modo PERMANENTE: normal/inline/split son sus 3 vistas, no hay
--- "salir de review". Por eso review siempre está activo y "normal" es la vista
--- por defecto.
+-- Review is a PERMANENT mode: normal/inline/split are its 3 views, there is no
+-- "leaving review". That is why review is always active and "normal" is the
+-- default view.
 M.mode = "normal"
 
 local VALID_MODES = { normal = true, inline = true, split = true }
 local applying = false
 
--- Colores del split. Distingue:
---  * línea MODIFICADA (DiffChange): tinte NARANJA suave en ambas columnas.
---  * texto exacto que cambió dentro de la línea (DiffText): ROJO a la izq
---    (lo quitado), VERDE a la der (lo agregado) -> se ve QUÉ cambió.
---  * línea BORRADA entera (única de la izq) / AGREGADA entera (única de la der):
---    ROJA / VERDE completa.
--- Override-ables.
+-- Split colors. They distinguish:
+--  * MODIFIED line (DiffChange): soft ORANGE tint in both columns.
+--  * exact text that changed within the line (DiffText): RED on the left
+--    (what was removed), GREEN on the right (what was added) -> you see WHAT changed.
+--  * entirely DELETED line (only on the left) / entirely ADDED line (only on the right):
+--    full RED / GREEN.
+-- Overridable.
 local function ensure_diff_hl()
-  -- Solo FONDO (sin fg ni bold, para no saturar).
-  vim.api.nvim_set_hl(0, "ReviewDiffChange", { bg = "#44401d", default = true }) -- modificada: amarillo suave
-  vim.api.nvim_set_hl(0, "ReviewDiffDelLine", { bg = "#37202a", default = true }) -- línea borrada entera (rojo oscuro)
-  vim.api.nvim_set_hl(0, "ReviewDiffDelText", { bg = "#54232f", default = true }) -- texto quitado (rojo)
-  vim.api.nvim_set_hl(0, "ReviewDiffAddLine", { bg = "#21331f", default = true }) -- línea agregada entera (verde oscuro)
-  vim.api.nvim_set_hl(0, "ReviewDiffAddText", { bg = "#2c4a30", default = true }) -- texto agregado (verde)
-  vim.api.nvim_set_hl(0, "ReviewDiffFiller", { bg = "#2a2b38", default = true }) -- relleno
+  -- BACKGROUND only (no fg or bold, to avoid oversaturating).
+  vim.api.nvim_set_hl(0, "ReviewDiffChange", { bg = "#44401d", default = true }) -- modified: soft yellow
+  vim.api.nvim_set_hl(0, "ReviewDiffDelLine", { bg = "#37202a", default = true }) -- entirely deleted line (dark red)
+  vim.api.nvim_set_hl(0, "ReviewDiffDelText", { bg = "#54232f", default = true }) -- removed text (red)
+  vim.api.nvim_set_hl(0, "ReviewDiffAddLine", { bg = "#21331f", default = true }) -- entirely added line (dark green)
+  vim.api.nvim_set_hl(0, "ReviewDiffAddText", { bg = "#2c4a30", default = true }) -- added text (green)
+  vim.api.nvim_set_hl(0, "ReviewDiffFiller", { bg = "#2a2b38", default = true }) -- filler
 end
 
--- Aplica el modo global a la ventana/buffer ACTUAL (la de edición).
+-- Applies the global mode to the CURRENT window/buffer (the editing one).
 local function apply_current(core)
   if applying then return end
   applying = true
@@ -38,18 +38,18 @@ local function apply_current(core)
     local win = vim.api.nvim_get_current_win()
     local buf = vim.api.nvim_get_current_buf()
     if split.is_scratch(buf) then
-      -- Cambio de vista DELIBERADO parado en el panel HEAD: operar sobre la
-      -- ventana de edición, no sobre el scratch. Sin esto, salir de split desde
-      -- el panel izquierdo no limpiaba nada ("solo cambia una división").
-      -- (El path pasivo de BufEnter ya descarta el scratch antes de llegar acá.)
+      -- DELIBERATE view change while standing on the HEAD panel: operate on the
+      -- editing window, not on the scratch. Without this, leaving split from
+      -- the left panel cleaned up nothing ("only one split changes").
+      -- (The passive BufEnter path already discards the scratch before getting here.)
       local mw = split.main_win()
       if not mw then return end
       vim.api.nvim_set_current_win(mw)
       win = vim.api.nvim_get_current_win()
       buf = vim.api.nvim_get_current_buf()
     end
-    -- Un archivo que vuelve a una ventana donde el split le dejó el diff puesto
-    -- (el par se desarmó mientras la ventana mostraba otro archivo): apagarlo.
+    -- A file returning to a window where the split left its diff on
+    -- (the pair was torn down while the window showed another file): turn it off.
     split.clear_stale(win, buf)
     if M.mode == "inline" then
       split.teardown()
@@ -61,13 +61,13 @@ local function apply_current(core)
       inline.clear(core, buf)
       split.teardown()
     end
-    -- Review NUNCA debe compactar líneas: abrir los folds en la ventana del
-    -- archivo del repo (en los 3 modos). Sin esto, un plugin de folds del
-    -- usuario (treesitter/ufo) mostraría "+-- N lines" tapando lo que se revisa.
+    -- Review must NEVER collapse lines: open the folds in the window of the
+    -- repo file (in all 3 modes). Without this, a user fold plugin
+    -- (treesitter/ufo) would show "+-- N lines" hiding what is being reviewed.
     if vim.bo[buf].buftype == "" and core.git.rel_path(buf) then
       pcall(function()
-        -- `[0]` = local a esta ventana: sin él cambiaba también el global y
-        -- archivos de fuera del repo nacían sin folds (contradice D11).
+        -- `[0]` = local to this window: without it the global changed too and
+        -- files outside the repo were born without folds (contradicts D11).
         vim.wo[win][0].foldenable = false
         vim.wo[win][0].foldlevel = 99
       end)
@@ -77,8 +77,8 @@ local function apply_current(core)
   if not ok then vim.notify("review.nvim views: " .. tostring(err), vim.log.levels.DEBUG) end
 end
 
---- Cambia el modo de vista GLOBAL y lo aplica al archivo actual. No-op si el
---- modo es inválido o ya es el actual.
+--- Changes the GLOBAL view mode and applies it to the current file. No-op if the
+--- mode is invalid or already the current one.
 function M.set(core, mode)
   if not VALID_MODES[mode] then return end
   if M.mode == mode then return end
@@ -94,15 +94,15 @@ function M.setup(core, opts)
   ensure_diff_hl()
   vim.api.nvim_create_autocmd("ColorScheme", { group = group, callback = ensure_diff_hl })
 
-  -- Invalidar el cache del HEAD de inline al recargar el archivo, y LIBERARLO al
-  -- cerrar/eliminar el buffer (si no, el cache crece con cada archivo abierto).
+  -- Invalidate the inline HEAD cache when the file is reloaded, and RELEASE it when
+  -- the buffer is closed/deleted (otherwise the cache grows with every opened file).
   vim.api.nvim_create_autocmd({ "BufReadPost", "BufDelete", "BufWipeout" }, {
     group = group,
     callback = function(a) inline.invalidate(a.buf) end,
   })
 
-  -- Al volver a Neovim, el HEAD pudo cambiar afuera (commit, `git add` con base
-  -- índice) sin tocar el archivo: olvidar los HEAD cacheados y repintar la vista.
+  -- When returning to Neovim, HEAD may have changed outside (commit, `git add` with an
+  -- index base) without touching the file: forget the cached HEADs and repaint the view.
   vim.api.nvim_create_autocmd("FocusGained", {
     group = group,
     callback = function()
@@ -112,8 +112,8 @@ function M.setup(core, opts)
     end,
   })
 
-  -- Review es permanente: al entrar a cualquier archivo del repo se aplica la
-  -- vista actual (global, estilo VSCode) y se abren los folds.
+  -- Review is permanent: when entering any file in the repo the current
+  -- view (global, VSCode style) is applied and the folds are opened.
   vim.api.nvim_create_autocmd({ "BufWinEnter", "BufEnter" }, {
     group = group,
     callback = function(a)
@@ -122,16 +122,16 @@ function M.setup(core, opts)
     end,
   })
 
-  -- Cierre MANUAL de cualquiera de las dos columnas del split: se toma como "no
-  -- quiero split". Se limpia la sesión y la vista global pasa a normal; si no,
-  -- el par reaparecía en el siguiente cambio de foco o de archivo.
+  -- MANUAL close of either of the two split columns: it is taken as "I don't
+  -- want split". The session is cleaned up and the global view becomes normal; otherwise
+  -- the pair would reappear on the next focus or file change.
   vim.api.nvim_create_autocmd("WinClosed", {
     group = group,
     callback = function(a)
       local win = tonumber(a.match)
       if not win then return end
-      -- Antes que nada: si la ventana que se cierra está en modo diff, evitar
-      -- que Neovim dispare DiffUpdated en medio del cierre (split.lua, B19).
+      -- First of all: if the window being closed is in diff mode, prevent
+      -- Neovim from firing DiffUpdated in the middle of the close (split.lua, B19).
       if vim.api.nvim_win_is_valid(win) and vim.wo[win].diff then split.guard_diff_close() end
       split.forget_win(win)
       local ok, was_pair = pcall(split.on_win_closed, win)
@@ -142,11 +142,11 @@ function M.setup(core, opts)
     end,
   })
 
-  -- Re-render en vivo al editar. Inline: repinta. Split: re-sincroniza para
-  -- abrir/cerrar las 2 columnas según aparezcan/desaparezcan cambios vs HEAD.
-  -- En insert (TextChangedI) el repintado inline se agrupa con un solo
-  -- temporizador: recalcula el diff de todo el buffer, y con 10 000 líneas muy
-  -- cambiadas son 40 ms por tecla. Fuera de insert (TextChanged) es inmediato.
+  -- Live re-render while editing. Inline: repaints. Split: re-syncs to
+  -- open/close the 2 columns as changes vs HEAD appear/disappear.
+  -- In insert mode (TextChangedI) the inline repaint is batched with a single
+  -- timer: it recomputes the diff of the whole buffer, and with 10,000 heavily
+  -- changed lines that is 40 ms per keystroke. Outside insert (TextChanged) it is immediate.
   local inline_timer = assert(vim.uv.new_timer())
   local inline_buf
   local render_pending = vim.schedule_wrap(function()
@@ -167,17 +167,17 @@ function M.setup(core, opts)
           pcall(inline.render, core, a.buf)
         end
       elseif M.mode == "split" and a.event == "TextChanged" then
-        -- Solo al TERMINAR un cambio (no por cada tecla en insert): el diff
-        -- nativo ya se actualiza live; esto solo detecta si volvió a HEAD.
+        -- Only when a change FINISHES (not on every keystroke in insert): the native
+        -- diff already updates live; this only detects whether it went back to HEAD.
         pcall(apply_current, core)
-        vim.schedule(function() pcall(split.repad) end) -- re-alinear wrap
+        vim.schedule(function() pcall(split.repad) end) -- re-align wrap
       end
     end,
   })
 
-  -- Al cambiar el ANCHO de las columnas (sidebar abre/cierra, resize de ventana)
-  -- o al togglear `wrap` (<leader>w), las alturas de wrap cambian → recalcular
-  -- el padding virtual de alineación.
+  -- When the column WIDTH changes (sidebar opens/closes, window resize)
+  -- or when toggling `wrap` (<leader>w), the wrap heights change → recompute
+  -- the virtual alignment padding.
   vim.api.nvim_create_autocmd({ "WinResized", "VimResized", "OptionSet" }, {
     group = group,
     callback = function(a)
@@ -187,8 +187,8 @@ function M.setup(core, opts)
     end,
   })
 
-  -- Al cambiar la BASE de comparación (:ReviewBase), invalidar el cache del HEAD
-  -- y re-renderizar la vista actual con la nueva base.
+  -- When the comparison BASE changes (:ReviewBase), invalidate the HEAD cache
+  -- and re-render the current view with the new base.
   core.events.on("base:changed", function()
     inline.invalidate()
     vim.schedule(function() apply_current(core) end)
@@ -197,7 +197,7 @@ function M.setup(core, opts)
   local commands = require("review.features.views.commands")
   commands.setup(core, opts, M)
 
-  -- Marcadores de cambios en el scrollbar (nvim-scrollbar), si está instalado.
+  -- Change markers in the scrollbar (nvim-scrollbar), if installed.
   require("review.features.views.scrollbar").setup(core)
 end
 

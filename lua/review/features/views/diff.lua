@@ -1,6 +1,6 @@
 local M = {}
 
--- Parsea el header de un hunk unificado: @@ -old_start[,old_count] +new_start[,new_count] @@
+-- Parses the header of a unified hunk: @@ -old_start[,old_count] +new_start[,new_count] @@
 local function parse_hunk_header(line)
   local old_start, old_count, new_start, new_count =
     line:match("^@@ %-(%d+),?(%d*) %+(%d+),?(%d*) @@")
@@ -18,8 +18,8 @@ local function parse_hunk_header(line)
   }
 end
 
---- Parsea el texto completo de `git diff -U0` en una lista de hunks.
---- Ignora las líneas de header del diff (diff --git / index / --- / +++).
+--- Parses the full text of `git diff -U0` into a list of hunks.
+--- Ignores the diff header lines (diff --git / index / --- / +++).
 function M.parse_unified_diff(text)
   local hunks = {}
   if not text or text == "" then return hunks end
@@ -36,15 +36,15 @@ function M.parse_unified_diff(text)
         table.insert(current.add_lines, line:sub(2))
         table.insert(current.add_lnums, current.new_start + #current.add_lnums)
       end
-      -- otras líneas (---, +++, \ No newline at end of file) se ignoran
+      -- other lines (---, +++, \ No newline at end of file) are ignored
     end
   end
 
   return hunks
 end
 
---- Corre `git diff -U0 -- relpath` en git_root y devuelve los hunks parseados.
---- nil si no hay git_root o el comando falla.
+--- Runs `git diff -U0 -- relpath` in git_root and returns the parsed hunks.
+--- nil if there is no git_root or the command fails.
 function M.hunks_for(relpath, git_root)
   if not git_root then return nil end
   local out = vim.fn.system({ "git", "-C", git_root, "diff", "-U0", "--", relpath })
@@ -52,13 +52,13 @@ function M.hunks_for(relpath, git_root)
   return M.parse_unified_diff(out)
 end
 
---- Diff EN MEMORIA entre el contenido HEAD y el contenido actual del buffer
---- (usando `vim.diff`, sin subprocess ni tocar el disco). A diferencia de
---- `hunks_for` (que compara HEAD vs archivo en disco), esto refleja los cambios
---- SIN GUARDAR, así las vistas se actualizan mientras editas. Devuelve la misma
---- forma de hunk que `parse_unified_diff`.
---- @param head_lines string[]|nil líneas de la versión HEAD
---- @param buf_lines string[] líneas actuales del buffer
+--- IN-MEMORY diff between the HEAD content and the buffer's current content
+--- (using `vim.diff`, with no subprocess and without touching the disk). Unlike
+--- `hunks_for` (which compares HEAD vs the file on disk), this reflects UNSAVED
+--- changes, so the views update while you edit. Returns the same
+--- hunk shape as `parse_unified_diff`.
+--- @param head_lines string[]|nil lines of the HEAD version
+--- @param buf_lines string[] current lines of the buffer
 --- @return table[] hunks
 function M.hunks_between(head_lines, buf_lines)
   local out = {}
@@ -79,9 +79,9 @@ function M.hunks_between(head_lines, buf_lines)
       add[#add + 1] = buf_lines[sb + i] or ""
       add_lnums[#add_lnums + 1] = sb + i
     end
-    -- Cuando count==0, `vim.diff` da el índice de la línea previa; para el
-    -- render (anclaje de borrados) queremos la primera línea nueva del hunk,
-    -- así que normalizamos new_start a sb+1 en las inserciones/borrados puros.
+    -- When count==0, `vim.diff` gives the index of the previous line; for the
+    -- render (anchoring of deletions) we want the first new line of the hunk,
+    -- so we normalize new_start to sb+1 for pure insertions/deletions.
     local new_start = cb > 0 and sb or (sb + 1)
     out[#out + 1] = {
       old_start = ca > 0 and sa or (sa + 1),

@@ -3,13 +3,13 @@ local events = require("review.core.events")
 
 local M = {}
 local list = {}
--- Repo al que pertenece `list`: se fija al cargar y es donde se guarda. El cwd
--- puede cambiar (`:cd`) y guardar en el repo del cwd mezclaba proyectos.
+-- Repo that `list` belongs to: set on load and where it gets saved. The cwd
+-- can change (`:cd`) and saving to the cwd's repo mixed up projects.
 local root
 
--- Id único: segundos + contador monotónico + 3 bytes aleatorios del sistema.
--- `vim.uv.random` no toca el generador global de `math.random`, que comparten
--- todos los plugins de la sesión.
+-- Unique id: seconds + monotonic counter + 3 random bytes from the system.
+-- `vim.uv.random` does not touch the global `math.random` generator, which is
+-- shared by all plugins in the session.
 local _counter = 0
 local function uuid()
   _counter = _counter + 1
@@ -45,8 +45,8 @@ function M.add(c)
 end
 
 function M.remove(id)
-  -- Borra el comentario y, EN CASCADA, sus respuestas (reply_to == id), para no
-  -- dejar respuestas huérfanas apuntando a un padre inexistente.
+  -- Deletes the comment and, in CASCADE, its replies (reply_to == id), so no
+  -- orphan replies are left pointing to a nonexistent parent.
   local removed = false
   for i = #list, 1, -1 do
     local c = list[i]
@@ -67,7 +67,7 @@ function M.update(id, fields)
   return true
 end
 
---- Comentarios que responden a `id` (reply_to == id), en orden de inserción.
+--- Comments that reply to `id` (reply_to == id), in insertion order.
 function M.replies(id)
   local out = {}
   for _, c in ipairs(list) do
@@ -76,8 +76,8 @@ function M.replies(id)
   return out
 end
 
---- Hilo completo de un comentario: el padre primero, luego sus respuestas.
---- Lista vacía si `id` no existe.
+--- Full thread of a comment: the parent first, then its replies.
+--- Empty list if `id` does not exist.
 function M.thread(id)
   local parent = M.by_id(id)
   if not parent then return {} end
@@ -93,7 +93,7 @@ function M.load()
 end
 
 function M.persist()
-  -- No persistir el campo runtime _extmark_id.
+  -- Do not persist the runtime field _extmark_id.
   local clean = {}
   for _, c in ipairs(list) do
     local copy = {}
@@ -108,8 +108,8 @@ function M.persist()
   return ok
 end
 
---- Cambia al repo del cwd actual si es otro (`:cd`): guarda los comentarios del
---- repo anterior y carga los del nuevo. No-op si el repo no cambió.
+--- Switches to the current cwd's repo if it is a different one (`:cd`): saves the
+--- previous repo's comments and loads the new one's. No-op if the repo did not change.
 --- @return boolean switched
 function M.switch_root()
   store.clear_root_cache()

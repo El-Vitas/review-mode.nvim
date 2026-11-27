@@ -5,7 +5,7 @@ local function fake_core()
   return {
     ns = { views = vim.api.nvim_create_namespace("review.test.views") },
     git = {
-      rel_path = function() return nil end, -- fuera de git: inline/split no-op seguro
+      rel_path = function() return nil end, -- outside git: inline/split are a safe no-op
       root = function() return nil end,
       head_content = function() return nil end,
       base_lines = function() return nil end,
@@ -17,7 +17,7 @@ local function fake_core()
   }
 end
 
-describe("views.set (modo global)", function()
+describe("views.set (global mode)", function()
   local core
 
   before_each(function()
@@ -25,11 +25,11 @@ describe("views.set (modo global)", function()
     views.mode = "normal"
   end)
 
-  it("normal por defecto", function()
+  it("normal by default", function()
     assert.are.equal("normal", views.mode)
   end)
 
-  it("set aplica y guarda el modo global, emite view:changed", function()
+  it("set applies and stores the global mode, emits view:changed", function()
     views.set(core, "inline")
     assert.are.equal("inline", views.mode)
     assert.are.equal(1, #core._emitted)
@@ -37,27 +37,27 @@ describe("views.set (modo global)", function()
     assert.are.same({ mode = "inline" }, core._emitted[1].payload)
   end)
 
-  it("setear el mismo modo es idempotente (no reemite)", function()
+  it("setting the same mode is idempotent (does not re-emit)", function()
     views.set(core, "inline")
     views.set(core, "inline")
     assert.are.equal(1, #core._emitted)
   end)
 
-  it("cambiar de inline a split cambia el modo y reemite", function()
+  it("switching from inline to split changes the mode and re-emits", function()
     views.set(core, "inline")
     views.set(core, "split")
     assert.are.equal("split", views.mode)
     assert.are.equal(2, #core._emitted)
   end)
 
-  it("modo inválido no cambia el estado", function()
+  it("an invalid mode does not change the state", function()
     views.set(core, "inline")
     views.set(core, "bogus")
     assert.are.equal("inline", views.mode)
     assert.are.equal(1, #core._emitted)
   end)
 
-  it("volver a normal", function()
+  it("going back to normal", function()
     views.set(core, "inline")
     views.set(core, "normal")
     assert.are.equal("normal", views.mode)
