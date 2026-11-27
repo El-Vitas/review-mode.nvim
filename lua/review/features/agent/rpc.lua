@@ -10,9 +10,9 @@ local function clean(c)
   return copy
 end
 
--- Topes de lo que acepta la API. Lo que llega por RPC lo escribe un agente que
--- puede equivocarse: un valor de tipo incorrecto quedaba persistido y rompía el
--- render en cada arranque, y un rango enorme congelaba el editor.
+-- Limits on what the API accepts. What arrives over RPC is written by an agent
+-- that can make mistakes: a value of the wrong type got persisted and broke the
+-- render on every startup, and a huge range froze the editor.
 local MAX_TEXT = 64 * 1024
 local MAX_PATH = 4096
 local MAX_LNUM = 10000000
@@ -20,7 +20,7 @@ local MAX_CONTEXT_LINES = 500
 
 local function decode_maybe(x)
   if type(x) == "string" then
-    -- luanil: un `null` del JSON llega como nil y no como vim.NIL (que es truthy).
+    -- luanil: a JSON `null` arrives as nil and not as vim.NIL (which is truthy).
     local ok, d = pcall(vim.json.decode, x, { luanil = { object = true, array = true } })
     if not ok then return nil end
     return d
@@ -36,7 +36,7 @@ local function is_text(s)
   return type(s) == "string" and #s <= MAX_TEXT and vim.trim(s) ~= ""
 end
 
---- Path relativo al repo y sin salir de él: ni absoluto ni con segmentos `..`.
+--- Path relative to the repo and not escaping it: neither absolute nor with `..` segments.
 local function is_relpath(p)
   if type(p) ~= "string" or p == "" or #p > MAX_PATH or p:sub(1, 1) == "/" then return false end
   for seg in p:gmatch("[^/]+") do
@@ -45,11 +45,11 @@ local function is_relpath(p)
   return true
 end
 
---- Busca el bufnr abierto para un relpath (o nil). Compara por path relativo
---- resuelto desde la raíz del propio buffer (symlinks incluidos): comparar el
---- nombre del buffer contra `raíz del cwd .. relpath` fallaba si el cwd no era
---- la raíz o el archivo se abrió por un symlink, y entonces `is_modified`
---- respondía false con cambios sin guardar.
+--- Finds the open bufnr for a relpath (or nil). Compares by relative path
+--- resolved from the buffer's own root (symlinks included): comparing the buffer
+--- name against `cwd root .. relpath` failed if the cwd was not the root
+--- or the file was opened through a symlink, and then `is_modified`
+--- answered false despite unsaved changes.
 local function buf_for_path(core, relpath)
   for _, b in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_loaded(b) and vim.bo[b].buftype == "" and core.git.rel_path(b) == relpath then
@@ -61,7 +61,7 @@ end
 
 function M.list(core, filter_json)
   local filter = decode_maybe(filter_json)
-  if filter_json ~= nil and type(filter) ~= "table" then return "[]" end -- filtro roto: nada
+  if filter_json ~= nil and type(filter) ~= "table" then return "[]" end -- broken filter: nothing
   filter = filter or {}
   local out = {}
   for _, c in ipairs(core.state.all()) do
@@ -92,21 +92,21 @@ function M.context(core, id)
   local c = core.state.by_id(id)
   if not c then return "null" end
   local lines = {}
-  -- Comentario de ARCHIVO: no hay líneas de contexto (aplica a todo el archivo).
+  -- FILE comment: there are no context lines (it applies to the whole file).
   if c.file_level or not c.lnum then
     return vim.json.encode({ comment = clean(c), lines = lines })
   end
   if not is_relpath(c.path) then return vim.json.encode({ comment = clean(c), lines = lines }) end
   local first = c.lnum
   local last = math.min(c.end_lnum or c.lnum, first + MAX_CONTEXT_LINES - 1)
-  -- Preferimos el contenido del buffer abierto; si no, disco.
+  -- We prefer the content of the open buffer; otherwise, disk.
   local b = buf_for_path(core, c.path)
   if b then
     lines = vim.api.nvim_buf_get_lines(b, first - 1, last, false)
   else
     local root = core.git.root()
     local full = root and (root:gsub("/$", "") .. "/" .. c.path) or nil
-    -- Confinado al repo también después de resolver symlinks.
+    -- Confined to the repo also after resolving symlinks.
     local real, real_root = full and vim.uv.fs_realpath(full), root and vim.uv.fs_realpath(root)
     if real and real_root and vim.startswith(real, real_root .. "/") then
       local ok, disk = pcall(vim.fn.readfile, real, "", last)
@@ -121,17 +121,17 @@ end
 function M.add(core, json_or_table)
   local data = decode_maybe(json_or_table)
   if type(data) ~= "table" or not is_relpath(data.path) or not is_text(data.text) then return "" end
-  -- Comentario de ARCHIVO (file_level, sin línea) o de línea/rango.
+  -- FILE comment (file_level, no line) or line/range comment.
   local file_level = data.file_level == true
   if not file_level then
     if not is_lnum(data.lnum) then return "" end
     if data.end_lnum ~= nil and not (is_lnum(data.end_lnum) and data.end_lnum >= data.lnum) then return "" end
   end
-  -- Un agente puede firmar con su nombre, pero no como el humano.
+  -- An agent may sign with its own name, but not as the human.
   local author = data.author
   if author == nil then author = "agent" end
   if type(author) ~= "string" or author == "" or author == "user" or #author > 64 then return "" end
-  -- Solo estos campos: el cliente no fija id, resolved, reply_to ni campos internos.
+  -- Only these fields: the client does not set id, resolved, reply_to or internal fields.
   local c = core.state.add({
     path = data.path,
     lnum = (not file_level) and data.lnum or nil,

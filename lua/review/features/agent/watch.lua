@@ -9,10 +9,10 @@ function M._has(bufnr)
   return M._watchers[bufnr] ~= nil
 end
 
---- Corre reconcile.patch en el hilo principal (las APIs de buffer NO son seguras
---- dentro del callback de libuv). Un conflicto (cambios sin guardar mientras el
---- archivo cambió en disco) se avisa una vez por buffer: el humano tiene que
---- saber que su buffer quedó desfasado del disco.
+--- Runs reconcile.patch on the main thread (buffer APIs are NOT safe
+--- inside a libuv callback). A conflict (unsaved changes while the
+--- file changed on disk) is reported once per buffer: the human needs to
+--- know their buffer is out of sync with the disk.
 local function run_patch(core, bufnr)
   vim.schedule(function()
     if not vim.api.nvim_buf_is_valid(bufnr) then return end
@@ -50,9 +50,9 @@ function M.attach(core, bufnr)
   M._watchers[bufnr] = entry
 
   local on_event
-  -- Algunos editores y git reemplazan el archivo (borrar + crear, o rename): hay
-  -- que re-armar el watch. Si el archivo todavía no reapareció, se reintenta; si
-  -- no vuelve, se suelta el watcher para que el próximo attach lo cree de nuevo.
+  -- Some editors and git replace the file (delete + create, or rename): the
+  -- watch must be re-armed. If the file has not reappeared yet, it retries; if
+  -- it does not come back, the watcher is dropped so the next attach creates it again.
   local function rearm(tries_left)
     pcall(entry.fs.stop, entry.fs)
     if start_fs(entry, on_event) then
@@ -66,7 +66,7 @@ function M.attach(core, bufnr)
 
   on_event = function(err)
     if err then return end
-    -- Debounce: agrupar ráfagas de escritura del agente en un solo patch.
+    -- Debounce: group bursts of agent writes into a single patch.
     entry.timer:stop()
     entry.timer:start(M._debounce_ms, 0, function() rearm(M._rearm_tries) end)
   end

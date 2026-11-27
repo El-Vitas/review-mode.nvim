@@ -1,8 +1,8 @@
 local M = {}
 
---- Aplica el contenido de disco al buffer como PATCH mínimo (no `:edit!`), para
---- que los extmarks (y por lo tanto los comentarios anclados) se re-anclen solos
---- por gravity. Nunca pisa cambios sin guardar del humano.
+--- Applies the disk content to the buffer as a minimal PATCH (not `:edit!`), so
+--- that extmarks (and therefore anchored comments) re-anchor themselves
+--- by gravity. Never overwrites the human's unsaved changes.
 --- @return "applied"|"identical"|"conflict"|"skipped"
 function M.patch(core, bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then return "skipped" end
@@ -12,12 +12,12 @@ function M.patch(core, bufnr)
   local name = vim.api.nvim_buf_get_name(bufnr)
   if name == "" then return "skipped" end
 
-  -- Conflicto: hay ediciones sin guardar → NO pisar (ver roadmap §1.3.3).
+  -- Conflict: there are unsaved edits → do NOT overwrite (see roadmap §1.3.3).
   if vim.bo[bufnr].modified then return "conflict" end
 
-  -- `readfile()` devuelve los bytes del disco sin convertir, pero el buffer ya
-  -- está en UTF-8: parchear un archivo latin1 metía bytes inválidos en el buffer
-  -- y el próximo :w escribía basura. Esos archivos no se reconcilian solos.
+  -- `readfile()` returns the disk bytes unconverted, but the buffer is already
+  -- in UTF-8: patching a latin1 file put invalid bytes into the buffer
+  -- and the next :w wrote garbage. Those files are not reconciled automatically.
   local fenc = vim.bo[bufnr].fileencoding
   if fenc ~= "" and fenc ~= "utf-8" then return "skipped" end
 
@@ -32,9 +32,9 @@ function M.patch(core, bufnr)
   local hunks = (vim.text.diff or vim.diff)(a, b, { result_type = "indices" })
   if not hunks or #hunks == 0 then return "identical" end
 
-  -- Aplicar de ABAJO hacia arriba para no invalidar los índices de los hunks
-  -- superiores. Cada hunk = { start_a, count_a, start_b, count_b } (1-based en a
-  -- y b; count==0 marca inserción/borrado puro con start = línea previa).
+  -- Apply from BOTTOM to TOP so the indices of the upper hunks are not
+  -- invalidated. Each hunk = { start_a, count_a, start_b, count_b } (1-based in a
+  -- and b; count==0 marks a pure insertion/deletion with start = previous line).
   for i = #hunks, 1, -1 do
     local h = hunks[i]
     local start_a, count_a, start_b, count_b = h[1], h[2], h[3], h[4]
@@ -46,8 +46,8 @@ function M.patch(core, bufnr)
 
     local s, e
     if count_a == 0 then
-      -- inserción: `start_a` es la línea (1-based) DESPUÉS de la cual insertar;
-      -- en 0-based eso es el índice `start_a` (set_lines(start_a, start_a, ...)).
+      -- insertion: `start_a` is the (1-based) line AFTER which to insert;
+      -- in 0-based that is index `start_a` (set_lines(start_a, start_a, ...)).
       s = start_a
       e = start_a
     else

@@ -2,7 +2,7 @@ local M = {}
 local _features = {}
 
 function M.register(feature)
-  assert(feature and feature.name and feature.setup, "feature inválida")
+  assert(feature and feature.name and feature.setup, "invalid feature")
   _features[feature.name] = feature
 end
 
@@ -10,14 +10,14 @@ function M.features()
   return _features
 end
 
--- Limpia el registro de features. Para tests (evita que features reales
--- auto-registradas por otros specs contaminen un test del registry).
+-- Clears the feature registry. For tests (keeps real features
+-- self-registered by other specs from contaminating a registry test).
 function M._reset()
   _features = {}
 end
 
--- Propaga el `leader` global a cada feature (salvo que la feature tenga uno
--- propio). Sin esto, los keymaps de las features nunca ven el leader global.
+-- Propagates the global `leader` to each feature (unless the feature has its
+-- own). Without this, feature keymaps never see the global leader.
 function M.setup(core, opts)
   opts = opts or {}
   local fopts = opts.features or {}

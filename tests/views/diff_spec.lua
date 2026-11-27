@@ -1,7 +1,7 @@
 local diff = require("review.features.views.diff")
 
 describe("views.diff.parse_unified_diff", function()
-  it("parsea un hunk simple de reemplazo", function()
+  it("parses a simple replacement hunk", function()
     local text = table.concat({
       "diff --git a/foo.lua b/foo.lua",
       "index 111..222 100644",
@@ -26,7 +26,7 @@ describe("views.diff.parse_unified_diff", function()
     assert.are.same({ 2, 3, 4 }, h.add_lnums)
   end)
 
-  it("parsea múltiples hunks", function()
+  it("parses multiple hunks", function()
     local text = table.concat({
       "@@ -1 +1 @@",
       "-x",
@@ -41,12 +41,12 @@ describe("views.diff.parse_unified_diff", function()
     assert.are.same({ 11, 12 }, hunks[2].add_lnums)
   end)
 
-  it("texto vacío o sin hunks devuelve lista vacía", function()
+  it("empty text or text without hunks returns an empty list", function()
     assert.are.same({}, diff.parse_unified_diff(""))
     assert.are.same({}, diff.parse_unified_diff("diff --git a/x b/x\nindex 1..2 100644\n"))
   end)
 
-  it("hunk solo-agregado (old_count 0 por defecto a 1 si falta)", function()
+  it("add-only hunk (old_count defaults to 1 when missing)", function()
     local text = "@@ -5 +5,2 @@\n+added1\n+added2\n"
     local hunks = diff.parse_unified_diff(text)
     assert.are.equal(1, hunks[1].old_count)
@@ -57,7 +57,7 @@ describe("views.diff.parse_unified_diff", function()
 end)
 
 describe("views.diff.hunks_for", function()
-  it("nil si no hay git_root", function()
+  it("nil when there is no git_root", function()
     assert.is_nil(diff.hunks_for("foo.lua", nil))
   end)
 end)

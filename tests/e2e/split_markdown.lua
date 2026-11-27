@@ -1,10 +1,10 @@
--- Vista SPLIT con archivos markdown (render-markdown adjunto). Cerrar una
--- columna del split con el diff invalidado hacía que Neovim disparara
--- DiffUpdated EN MEDIO de win_close; el callback de render-markdown llama a
--- win_findbuf ahí y Neovim moría con SIGSEGV (bug de Neovim). Cada caso de
--- abajo cierra columnas por un camino distinto: si Neovim se cae, el script no
--- llega a "TOTAL" y el runner lo marca como sin resultados.
--- Env: REVIEW_E2E_DIR, REVIEW_E2E_OUT. Commitea doc.md en el fixture.
+-- SPLIT view with markdown files (render-markdown attached). Closing one
+-- column of the split with the diff invalidated made Neovim fire
+-- DiffUpdated IN THE MIDDLE of win_close; render-markdown's callback calls
+-- win_findbuf there and Neovim died with SIGSEGV (a Neovim bug). Each case
+-- below closes columns through a different path: if Neovim crashes, the script
+-- never reaches "TOTAL" and the runner flags it as having no results.
+-- Env: REVIEW_E2E_DIR, REVIEW_E2E_OUT. Commits doc.md into the fixture.
 local R = assert(os.getenv("REVIEW_E2E_DIR"))
 pcall(vim.api.nvim_del_augroup_by_name, "NeoTreeAutoClose")
 local _of = os.getenv("REVIEW_E2E_OUT")
@@ -17,10 +17,10 @@ local views = require("review.features.views")
 local core = require("review.core")
 
 local md = R .. "/doc.md"
-local md2 = R .. "/otro.md"
-vim.fn.writefile({ "# Doc", "", "| a | b |", "|---|---|", "| 1 | 2 |", "", "texto" }, md)
-vim.fn.writefile({ "# Otro", "", "texto" }, md2)
-vim.fn.system({ "git", "-C", R, "add", "doc.md", "otro.md" })
+local md2 = R .. "/other.md"
+vim.fn.writefile({ "# Doc", "", "| a | b |", "|---|---|", "| 1 | 2 |", "", "text" }, md)
+vim.fn.writefile({ "# Other", "", "text" }, md2)
+vim.fn.system({ "git", "-C", R, "add", "doc.md", "other.md" })
 vim.fn.system({ "git", "-C", R, "commit", "-q", "-m", "docs" })
 vim.cmd("cd " .. R)
 
@@ -42,14 +42,14 @@ local function state_str()
   end
   return table.concat(parts, " ")
 end
--- Abre `path` y le hace un cambio en memoria. TextChanged a mano: en headless
--- nvim_buf_set_lines no lo dispara, y es el evento con el que review arma el par.
+-- Opens `path` and makes an in-memory change to it. TextChanged by hand: in headless
+-- nvim_buf_set_lines does not fire it, and it is the event review uses to build the pair.
 local function open_changed(path)
-  -- `edit!`: reabrir el mismo archivo con cambios en memoria sin `!` da E37.
+  -- `edit!`: reopening the same file with in-memory changes without `!` gives E37.
   local ok, err = pcall(vim.cmd, "edit! " .. path)
-  if not ok then log("obs  edit " .. path:gsub("^.*/", "") .. " falló: " .. tostring(err) .. " | " .. state_str()) end
+  if not ok then log("obs  edit " .. path:gsub("^.*/", "") .. " failed: " .. tostring(err) .. " | " .. state_str()) end
   wait(300)
-  vim.api.nvim_buf_set_lines(0, 1, 1, false, { "cambio en memoria" })
+  vim.api.nvim_buf_set_lines(0, 1, 1, false, { "in-memory change" })
   vim.api.nvim_exec_autocmds("TextChanged", { buffer = 0 })
 end
 local function split_on(path)
@@ -66,38 +66,38 @@ local function head_win()
   end
 end
 
--- 1. markdown → archivo sin cambios (el caso del crash reportado)
-ck(split_on(md), "M1 par sobre doc.md")
+-- 1. markdown → unchanged file (the reported crash case)
+ck(split_on(md), "M1 pair over doc.md")
 vim.cmd("edit " .. R .. "/nested/deep/f.ts"); wait()
-ck(select(1, heads()) == 0, "M1b doc.md → archivo sin cambios: vivo y en una columna")
+ck(select(1, heads()) == 0, "M1b doc.md → unchanged file: alive and in a single column")
 
--- 2. markdown → otro archivo con cambios
-ck(split_on(md), "M2 par sobre doc.md")
+-- 2. markdown → another file with changes
+ck(split_on(md), "M2 pair over doc.md")
 open_changed(R .. "/src/mod.ts"); wait()
-ck(select(1, heads()) == 1, "M2b doc.md → mod.ts: vivo y con el par en mod.ts")
+ck(select(1, heads()) == 1, "M2b doc.md → mod.ts: alive and with the pair on mod.ts")
 
--- 3. archivo de código → markdown con cambios, y markdown → markdown
-ck(split_on(R .. "/src/keep.ts"), "M3 par sobre keep.ts")
+-- 3. code file → markdown with changes, and markdown → markdown
+ck(split_on(R .. "/src/keep.ts"), "M3 pair over keep.ts")
 open_changed(md); wait()
-ck(select(1, heads()) == 1, "M3b keep.ts → doc.md: vivo")
+ck(select(1, heads()) == 1, "M3b keep.ts → doc.md: alive")
 open_changed(md2); wait()
-ck(select(1, heads()) == 1, "M3c doc.md → otro.md: vivo")
+ck(select(1, heads()) == 1, "M3c doc.md → other.md: alive")
 vim.cmd("edit " .. R .. "/nested/deep/f.ts"); wait()
-ck(select(1, heads()) == 0, "M3d otro.md → sin cambios: vivo")
+ck(select(1, heads()) == 0, "M3d other.md → unchanged: alive")
 
--- 4. cambiar de vista desde cada columna con markdown
-ck(split_on(md), "M4 par sobre doc.md")
+-- 4. switch view from each column with markdown
+ck(split_on(md), "M4 pair over doc.md")
 views.set(core, "normal"); wait()
-ck(select(1, heads()) == 0, "M4b split → normal desde la edición: vivo")
-ck(split_on(md), "M4c par sobre doc.md")
+ck(select(1, heads()) == 0, "M4b split → normal from the edit column: alive")
+ck(split_on(md), "M4c pair over doc.md")
 vim.api.nvim_set_current_win(head_win()); views.set(core, "inline"); wait()
-ck(select(1, heads()) == 0, "M4d split → inline desde la columna HEAD: vivo")
+ck(select(1, heads()) == 0, "M4d split → inline from the HEAD column: alive")
 
--- 5. cerrar cada columna a mano
-ck(split_on(md), "M5 par sobre doc.md")
+-- 5. close each column by hand
+ck(split_on(md), "M5 pair over doc.md")
 vim.api.nvim_win_close(head_win(), true); wait()
-ck(select(1, heads()) == 0, "M5b cerrar la columna HEAD a mano: vivo")
-ck(split_on(md), "M5c par sobre doc.md")
+ck(select(1, heads()) == 0, "M5b closing the HEAD column by hand: alive")
+ck(split_on(md), "M5c pair over doc.md")
 vim.cmd("vsplit " .. R .. "/nested/deep/f.ts"); wait()
 for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
   if vim.wo[w].diff and not vim.api.nvim_buf_get_name(vim.api.nvim_win_get_buf(w)):find("^review://") then
@@ -105,19 +105,19 @@ for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
   end
 end
 wait()
-ck(select(2, heads()) == 0, "M5d cerrar la columna de edición a mano: vivo")
+ck(select(2, heads()) == 0, "M5d closing the edit column by hand: alive")
 
--- 6. cerrar la pestaña del par
+-- 6. close the pair's tab
 vim.cmd("only")
 vim.cmd("tabnew")
-ck(split_on(md), "M6 par sobre doc.md en otra pestaña")
+ck(split_on(md), "M6 pair over doc.md in another tab")
 vim.cmd("tabclose"); wait()
-ck(true, "M6b cerrar la pestaña del par: vivo")
+ck(true, "M6b closing the pair's tab: alive")
 
--- 7. Las guardias no dejan DiffUpdated ignorado.
+-- 7. The guards do not leave DiffUpdated ignored.
 wait()
 ck(not vim.go.eventignore:find("DiffUpdated", 1, true),
-  ("M7 eventignore limpio al final (%q)"):format(vim.go.eventignore))
+  ("M7 eventignore clean at the end (%q)"):format(vim.go.eventignore))
 
 log("TOTAL fails=" .. fails)
 vim.cmd("qa!")

@@ -2,10 +2,10 @@ local markdown = require("review.features.export.markdown")
 
 local M = {}
 
--- Header agent-ready: si el agente está habilitado (existe `_G.ReviewAgent`),
--- anteponemos al yank el socket RPC de esta instancia de Neovim + la API, para
--- que el agente tenga TODO lo que necesita con solo pegar el markdown (sin pedir
--- el socket a mano). Si el agente no está habilitado, no se agrega nada.
+-- Agent-ready header: if the agent is enabled (`_G.ReviewAgent` exists),
+-- we prepend to the yank the RPC socket of this Neovim instance + the API, so
+-- the agent has EVERYTHING it needs just by pasting the markdown (without asking
+-- for the socket by hand). If the agent is not enabled, nothing is added.
 local function agent_header()
   if _G.ReviewAgent == nil then return "" end
   local sock = vim.v.servername
@@ -53,7 +53,7 @@ function M.setup(core, opts)
   vim.api.nvim_create_user_command("Ryf", function() yank_file(core) end, {})
   vim.api.nvim_create_user_command("Rya", function() yank_all(core) end, {})
 
-  -- Yank/export agrupado bajo <leader>ry: yf = file, ya = all.
+  -- Yank/export grouped under <leader>ry: yf = file, ya = all.
   vim.keymap.set("n", leader .. "yf", function() yank_file(core) end, { desc = "Review: yank comments (file)" })
   vim.keymap.set("n", leader .. "ya", function() yank_all(core) end, { desc = "Review: yank comments (all)" })
 end

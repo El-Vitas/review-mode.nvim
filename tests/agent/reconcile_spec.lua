@@ -26,23 +26,23 @@ describe("agent.reconcile.patch", function()
     vim.bo[bufnr].modified = false
   end)
 
-  it("identical si disco == buffer", function()
+  it("identical when disk == buffer", function()
     assert.are.equal("identical", reconcile.patch(core, bufnr))
   end)
 
-  it("conflict si el buffer tiene cambios sin guardar", function()
-    vim.api.nvim_buf_set_lines(bufnr, 0, 0, false, { "sin guardar" })
+  it("conflict when the buffer has unsaved changes", function()
+    vim.api.nvim_buf_set_lines(bufnr, 0, 0, false, { "unsaved" })
     assert.is_true(vim.bo[bufnr].modified)
     write_file(path, { "l1", "l2", "l3", "l4", "l5", "l6" })
     assert.are.equal("conflict", reconcile.patch(core, bufnr))
   end)
 
-  it("applied: inserción arriba corre el extmark y queda nomodified", function()
+  it("applied: an insertion above shifts the extmark and leaves the buffer nomodified", function()
     local id = vim.api.nvim_buf_set_extmark(bufnr, ns.comments, 2, 0, {})
-    write_file(path, { "NUEVA", "l1", "l2", "l3", "l4", "l5" })
+    write_file(path, { "NEW", "l1", "l2", "l3", "l4", "l5" })
     assert.are.equal("applied", reconcile.patch(core, bufnr))
     assert.are.same(
-      { "NUEVA", "l1", "l2", "l3", "l4", "l5" },
+      { "NEW", "l1", "l2", "l3", "l4", "l5" },
       vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
     )
     local pos = vim.api.nvim_buf_get_extmark_by_id(bufnr, ns.comments, id, {})
@@ -50,7 +50,7 @@ describe("agent.reconcile.patch", function()
     assert.is_false(vim.bo[bufnr].modified)
   end)
 
-  it("applied: modificación en el medio no mueve extmarks anteriores", function()
+  it("applied: a change in the middle does not move earlier extmarks", function()
     local id = vim.api.nvim_buf_set_extmark(bufnr, ns.comments, 0, 0, {})
     write_file(path, { "l1", "l2", "l3-MOD", "l4", "l5" })
     assert.are.equal("applied", reconcile.patch(core, bufnr))
@@ -59,7 +59,7 @@ describe("agent.reconcile.patch", function()
     assert.are.equal("l3-MOD", vim.api.nvim_buf_get_lines(bufnr, 2, 3, false)[1])
   end)
 
-  it("emite buffer:reconciled al aplicar", function()
+  it("emits buffer:reconciled when applied", function()
     local fired = nil
     events.on("buffer:reconciled", function(p) fired = p.bufnr end)
     write_file(path, { "l1", "l2", "l3", "l4", "l5", "l6" })

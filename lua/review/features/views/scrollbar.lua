@@ -1,17 +1,17 @@
--- Integración con petertriho/nvim-scrollbar + navegación de cambios.
--- Marca en el scrollbar las líneas cambiadas vs HEAD, BIEN NOTORIAS (glifo lleno
--- `█` y colores brillantes: verde=agregado, naranja=cambiado, rojo=borrado), y
--- expone los RANGOS de cambios para saltar con :ReviewNextChange / :ReviewChanges.
+-- Integration with petertriho/nvim-scrollbar + change navigation.
+-- Marks on the scrollbar the lines changed vs HEAD, VERY NOTICEABLY (solid glyph
+-- `█` and bright colors: green=added, orange=changed, red=deleted), and
+-- exposes the change RANGES to jump with :ReviewNextChange / :ReviewChanges.
 local M = {}
 
--- Cache del contenido HEAD por buffer (git show es subproceso). Se libera al
--- cerrar o recargar el buffer, al cambiar la base y al volver el foco a Neovim
--- (un commit hecho afuera cambia el HEAD sin tocar el archivo).
+-- Cache of the HEAD content per buffer (git show is a subprocess). It is released when
+-- closing or reloading the buffer, when the base changes and when focus returns to Neovim
+-- (a commit made outside changes HEAD without touching the file).
 local _head = {}
--- Cache de hunks por (buffer, changedtick).
+-- Hunk cache per (buffer, changedtick).
 local _hunks = {}
 
---- Olvida los HEAD y hunks cacheados (de un buffer, o de todos).
+--- Forgets the cached HEADs and hunks (of one buffer, or of all).
 function M.invalidate(bufnr)
   if bufnr then
     _head[bufnr] = nil
@@ -25,13 +25,13 @@ end
 local function head_for(core, bufnr, rel, root)
   local c = _head[bufnr]
   if c ~= nil then return c or nil end
-  local lines = core.git.base_lines(rel, root) -- archivo nuevo: todo es agregado
+  local lines = core.git.base_lines(rel, root) -- new file: everything is added
   _head[bufnr] = lines or false
   return lines
 end
 
---- Hunks de cambios del buffer vs HEAD. Devuelve lista de
---- { sl, el, kind } (1-based, en el buffer). kind = "add"|"change"|"delete".
+--- Change hunks of the buffer vs HEAD. Returns a list of
+--- { sl, el, kind } (1-based, in the buffer). kind = "add"|"change"|"delete".
 function M.hunks(core, bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then return {} end
   if vim.bo[bufnr].buftype ~= "" then return {} end
@@ -68,7 +68,7 @@ end
 
 local KIND_TYPE = { add = "GitAdd", change = "GitChange", delete = "GitDelete" }
 
--- Handler para nvim-scrollbar: marca cada línea cambiada con glifo NOTORIO.
+-- Handler for nvim-scrollbar: marks each changed line with a NOTICEABLE glyph.
 local function handler(core, bufnr)
   local marks = {}
   for _, h in ipairs(M.hunks(core, bufnr)) do
@@ -80,15 +80,15 @@ local function handler(core, bufnr)
   return marks
 end
 
--- Colores BRILLANTES y bold para las marcas (por defecto caen a negro y no se
--- ven). Override-ables por el usuario (se re-aplican en ColorScheme).
+-- BRIGHT, bold colors for the marks (by default they fall back to black and are
+-- not visible). Overridable by the user (re-applied on ColorScheme).
 local function ensure_hl()
   local defs = {
-    ScrollbarGitAdd = "#a6e3a1",       -- verde
+    ScrollbarGitAdd = "#a6e3a1",       -- green
     ScrollbarGitAddHandle = "#a6e3a1",
-    ScrollbarGitChange = "#fab387",    -- naranja
+    ScrollbarGitChange = "#fab387",    -- orange
     ScrollbarGitChangeHandle = "#fab387",
-    ScrollbarGitDelete = "#f38ba8",    -- rojo
+    ScrollbarGitDelete = "#f38ba8",    -- red
     ScrollbarGitDeleteHandle = "#f38ba8",
   }
   for name, fg in pairs(defs) do
@@ -98,7 +98,7 @@ end
 
 function M.setup(core)
   local ok, handlers = pcall(require, "scrollbar.handlers")
-  if not ok then return end -- nvim-scrollbar no instalado → no-op
+  if not ok then return end -- nvim-scrollbar not installed → no-op
 
   handlers.register("review", function(bufnr) return handler(core, bufnr) end)
   ensure_hl()
@@ -117,7 +117,7 @@ function M.setup(core)
     callback = function(a) _head[a.buf] = nil end,
   })
 
-  -- Al cambiar la base de comparación: limpiar caches y redibujar las marcas.
+  -- When the comparison base changes: clear caches and redraw the marks.
   if core.events then
     core.events.on("base:changed", function()
       _head = {}

@@ -13,20 +13,20 @@ describe("comments.commands", function()
     state._reset()
   end)
 
-  it("registra :ReviewCommentMode y :Rcm", function()
+  it("registers :ReviewCommentMode and :Rcm", function()
     commands.setup(core, { leader = "<leader>r" })
     assert.is_not_nil(vim.api.nvim_get_commands({})["ReviewCommentMode"])
     assert.is_true(vim.fn.exists(":Rcm") == 2)
   end)
 
-  it("registra :ReviewList y :Rl", function()
+  it("registers :ReviewList and :Rl", function()
     commands.setup(core, { leader = "<leader>r" })
     assert.is_not_nil(vim.api.nvim_get_commands({})["ReviewList"])
     assert.is_true(vim.fn.exists(":Rl") == 2)
   end)
 
-  it(":ReviewList llena la quickfix con los comentarios", function()
-    state.add({ path = "a.ts", lnum = 3, text = "revisar" })
+  it(":ReviewList fills the quickfix list with the comments", function()
+    state.add({ path = "a.ts", lnum = 3, text = "review" })
     commands.setup(core, { leader = "<leader>r" })
     vim.cmd("ReviewList")
     local qf = vim.fn.getqflist()
@@ -34,16 +34,16 @@ describe("comments.commands", function()
     assert.are.equal(3, qf[1].lnum)
   end)
 
-  it("mapea <leader>re (edit) en modo normal", function()
+  it("maps <leader>re (edit) in normal mode", function()
     commands.setup(core, { leader = "<leader>r" })
     assert.is_true(vim.fn.maparg("<leader>re", "n") ~= "")
   end)
 
-  it("_filter selecciona por modo (mine/agent/answered/unanswered)", function()
+  it("_filter selects by mode (mine/agent/answered/unanswered)", function()
     local p = { id = "p", author = "user", resolved = false }
     local a = { id = "a", author = "agent", resolved = false }
     local list = { p, a }
-    local replies_fn = function(id) return id == "p" and { {} } or {} end  -- p tiene 1 respuesta
+    local replies_fn = function(id) return id == "p" and { {} } or {} end  -- p has 1 reply
 
     local mine = commands._filter(list, replies_fn, "mine")
     assert.are.equal(1, #mine); assert.are.equal("p", mine[1].id)
