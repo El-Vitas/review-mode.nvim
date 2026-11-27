@@ -1,80 +1,80 @@
-# Comandos, alias y keymaps
+# Commands, aliases and keymaps
 
-Los comandos largos van capitalizados (`:ReviewX`); cada uno tiene un **alias
-corto real** (`:Rx`) y una versión en **minúscula** (`rx`) resuelta por
-`cnoreabbrev` en `plugin/review.lua` (puedes escribir en minúscula y se expande
-al confirmar). El prefijo de keymaps es `opts.leader` (default `<leader>r`).
+The long commands are capitalized (`:ReviewX`); each has a **real short
+alias** (`:Rx`) and a **lowercase** version (`rx`) resolved by
+`cnoreabbrev` in `plugin/review.lua` (you can type in lowercase and it expands
+on confirm). The keymap prefix is `opts.leader` (default `<leader>r`).
 
-## Comentarios
+## Comments
 
-| Comando | Alias | Keymap | Acción |
+| Command | Alias | Keymap | Action |
 |---|---|---|---|
-| `:ReviewCommentMode` | `:Rcm` / `rcm` | `<leader>re` | editar el comentario de la línea |
-| — | — | `<leader>rc` (n y v) | comentar la línea / la selección visual |
-| — | — | `<leader>rd` | borrar el comentario de la línea |
-| — | — | `<leader>rx` | resolver / des-resolver |
-| `:ReviewList` | `:Rl` / `rl` | `<leader>rl` | listar todos (quickfix) |
-| `:ReviewListFile` | `:Rlf` / `rlf` | `<leader>rL` | listar los del archivo actual |
-| `:ReviewToggle` | `:Rt` / `rt` | `<leader>rh` | ocultar / mostrar todos |
-| `:ReviewPeek` | `:Rp` / `rp` | `<leader>rp` | tarjeta flotante centrada del comentario (toggle; 1 sola a la vez) |
+| `:ReviewCommentMode` | `:Rcm` / `rcm` | `<leader>re` | edit the comment on the line |
+| — | — | `<leader>rc` (n and v) | comment the line / the visual selection |
+| — | — | `<leader>rd` | delete the comment on the line |
+| — | — | `<leader>rx` | resolve / unresolve |
+| `:ReviewList` | `:Rl` / `rl` | `<leader>rl` | list all (quickfix) |
+| `:ReviewListFile` | `:Rlf` / `rlf` | `<leader>rL` | list those in the current file |
+| `:ReviewToggle` | `:Rt` / `rt` | `<leader>rh` | hide / show all |
+| `:ReviewPeek` | `:Rp` / `rp` | `<leader>rp` | centered floating card of the comment (toggle; only 1 at a time) |
 
-**Popup de comentario:** arranca escribiendo; Enter hace saltos de línea;
-`Esc` y `Enter` (en normal) envía; `q` cancela.
+**Comment popup:** starts in typing mode; Enter inserts line breaks;
+`Esc` and `Enter` (in normal mode) submit; `q` cancels.
 
-**Dentro de la lista (quickfix):** `Enter` va al comentario y cierra · `d` borra
-· `x` resuelve · `f` cicla el filtro (all → open → resolved → mine → agent →
-answered → unanswered) · `q` cierra. La lista muestra solo comentarios top-level
-(las respuestas viven en el hilo del padre, visible en el peek).
+**Inside the list (quickfix):** `Enter` jumps to the comment and closes · `d` deletes
+· `x` resolves · `f` cycles the filter (all → open → resolved → mine → agent →
+answered → unanswered) · `q` closes. The list shows only top-level comments
+(replies live in the parent's thread, visible in the peek).
 
-## Agente (solo con `features.agent = { enabled = true }`)
+## Agent (only with `features.agent = { enabled = true }`)
 
-| Comando | Acción |
+| Command | Action |
 |---|---|
-| `:ReviewReload` | recargar el buffer actual desde disco con patch mínimo (fallback manual del re-anclaje AUTO, p. ej. si había conflicto por cambios sin guardar) |
+| `:ReviewReload` | reload the current buffer from disk with a minimal patch (manual fallback for AUTO re-anchoring, e.g. if there was a conflict due to unsaved changes) |
 
-El resto del control del agente es por RPC (`_G.ReviewAgent`, ver `docs/features.md`
-y `docs/plans/05-agent.md`), no por comandos de usuario.
+The rest of the agent control is through RPC (`_G.ReviewAgent`, see `docs/features.md`
+and `docs/plans/05-agent.md`), not through user commands.
 
-**Dentro de la tarjeta del peek:** `x` resolver · `d` borrar · `e` editar · `q`/`Esc` cerrar. Es una sola tarjeta centrada (abrir otra cierra la anterior).
+**Inside the peek card:** `x` resolve · `d` delete · `e` edit · `q`/`Esc` close. It is a single centered card (opening another closes the previous one).
 
-## Vistas (diff)
+## Views (diff)
 
-| Comando | Alias | Keymap | Acción |
+| Command | Alias | Keymap | Action |
 |---|---|---|---|
-| `:ReviewView {normal\|inline\|split}` | `:Rv` / `rv` | `<leader>rv` (cicla) | fijar/ciclar vista |
-| `:ReviewNormal` | `:Rvn` / `rvn` | `<leader>rn` | vista normal |
-| `:ReviewInline` | `:Rvi` / `rvi` | `<leader>ri` | vista inline (unificada) |
-| `:ReviewSplit` | `:Rvs` / `rvs` | `<leader>rs` | vista split (2 columnas) |
+| `:ReviewView {normal\|inline\|split}` | `:Rv` / `rv` | `<leader>rv` (cycles) | set/cycle view |
+| `:ReviewNormal` | `:Rvn` / `rvn` | `<leader>rn` | normal view |
+| `:ReviewInline` | `:Rvi` / `rvi` | `<leader>ri` | inline (unified) view |
+| `:ReviewSplit` | `:Rvs` / `rvs` | `<leader>rs` | split view (2 columns) |
 
-El modo es global: se aplica a todos los archivos y sigue al archivo activo.
+The mode is global: it applies to all files and follows the active file.
 
-**Cambios (vs la base):** `<leader>rg` lista los rangos (quickfix; `Enter` salta y
-cierra, `q` cierra) · `]r` / `[r` saltan al siguiente/anterior cambio.
+**Changes (vs the base):** `<leader>rg` lists the ranges (quickfix; `Enter` jumps and
+closes, `q` closes) · `]r` / `[r` jump to the next/previous change.
 
-**Base de comparación:** `:ReviewBase` / `:Rb` / `<leader>rb` abre un modal
-centrado para elegir contra qué se compara todo review (inline, split, cambios):
-`HEAD`, `index` (staged), o un commit reciente (hash + nombre). `f` togglea el
-filtro **this branch** (commits propios de la rama, `base..HEAD`) ↔ **global**
-(historial completo, `+` carga más). `Enter` selecciona, `q`/`Esc` cancela. Al
-elegir, también sincroniza los signos de gitsigns (`change_base`). El sidebar
-`changed` (`<leader>s`) refleja la base elegida. Default: `HEAD`.
+**Comparison base:** `:ReviewBase` / `:Rb` / `<leader>rb` opens a centered
+modal to choose what the whole review is compared against (inline, split, changes):
+`HEAD`, `index` (staged), or a recent commit (hash + name). `f` toggles the
+**this branch** filter (the branch's own commits, `base..HEAD`) ↔ **global**
+(full history, `+` loads more). `Enter` selects, `q`/`Esc` cancels. On
+selection, it also syncs the gitsigns signs (`change_base`). The `changed`
+sidebar (`<leader>s`) reflects the chosen base. Default: `HEAD`.
 
 ## Sidebar
 
-| Comando | Alias | Keymap | Acción |
+| Command | Alias | Keymap | Action |
 |---|---|---|---|
-| `:ReviewSidebar {changed\|all}` | `:Rs` / `rs` | `<leader>s` (toggle) | abrir/alternar cambiados ↔ todos |
+| `:ReviewSidebar {changed\|all}` | `:Rs` / `rs` | `<leader>s` (toggle) | open/switch changed ↔ all |
 
-Dentro del árbol (neo-tree nativo): `z` cierra todas · `Z` expande todas ·
-`<CR>`/`o` toggle carpeta · `C` cierra la actual · `:Neotree reveal` enfoca el
-archivo actual.
+Inside the tree (native neo-tree): `z` closes all · `Z` expands all ·
+`<CR>`/`o` toggles folder · `C` closes the current one · `:Neotree reveal` focuses the
+current file.
 
 ## Export
 
-| Comando | Alias | Keymap | Acción |
+| Command | Alias | Keymap | Action |
 |---|---|---|---|
-| `:ReviewYankFile` | `:Ryf` / `ryf` | `<leader>ryf` | copiar (markdown) los comentarios del archivo actual |
-| `:ReviewYankAll` | `:Rya` / `rya` | `<leader>rya` | copiar todos los comentarios |
+| `:ReviewYankFile` | `:Ryf` / `ryf` | `<leader>ryf` | copy (markdown) the comments of the current file |
+| `:ReviewYankAll` | `:Rya` / `rya` | `<leader>rya` | copy all comments |
 
-Con la feature `agent` habilitada, el yank antepone una cabecera con el socket RPC
-y cada comentario lleva su token `` `id:<id>` `` (agent-ready).
+With the `agent` feature enabled, the yank prepends a header with the RPC socket
+and each comment carries its `` `id:<id>` `` token (agent-ready).

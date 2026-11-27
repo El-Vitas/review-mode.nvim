@@ -1,68 +1,68 @@
-# Rendimiento y RAM
+# Performance and RAM
 
-review corre lógica en eventos muy frecuentes (`BufEnter`, `TextChanged`,
-render). Estas son las optimizaciones para que sea rápido y liviano, y cómo se
-evitan las fugas de memoria.
+review runs logic on very frequent events (`BufEnter`, `TextChanged`,
+render). These are the optimizations that keep it fast and lightweight, and how
+memory leaks are avoided.
 
 ## Caches
 
-| Cache | Dónde | Clave | Se libera |
+| Cache | Where | Key | Released |
 |---|---|---|---|
-| Raíz del repo | `core/git.lua` `root_cache` | directorio | `FocusGained` (`git.clear_cache`) |
-| Renames vs base | `core/git.lua` `rename_maps` | repo + base (+ huella `repo_stamp`) | `set_base`; se recalcula en segundo plano si cambia la huella (B22) |
-| Raíz por cwd | `core/store.lua` `_root_by_cwd` | cwd | `DirChanged` (`clear_root_cache`) |
+| Repo root | `core/git.lua` `root_cache` | directory | `FocusGained` (`git.clear_cache`) |
+| Renames vs base | `core/git.lua` `rename_maps` | repo + base (+ `repo_stamp` fingerprint) | `set_base`; recomputed in the background if the fingerprint changes (B22) |
+| Root by cwd | `core/store.lua` `_root_by_cwd` | cwd | `DirChanged` (`clear_root_cache`) |
 | HEAD (inline) | `views/inline.lua` `_head_cache` | bufnr | `BufReadPost`, `BufDelete`, `BufWipeout`, `FocusGained` |
-| HEAD y hunks (scrollbar) | `views/scrollbar.lua` `_head`, `_hunks` | bufnr (+ changedtick) | `BufReadPost`, `BufDelete/Wipeout`, `base:changed`, `FocusGained` |
-| HEAD (split) | sesión `split._session.head` | por sesión | al cerrar/cambiar de archivo |
-| Ranking/color gutter | `comments/gutter.lua` `_cache` | bufnr | `comments:changed` (reset total), `BufDelete/Wipeout` |
-| statuscolumn previo | `comments/gutter.lua` `_prev` | winid | `WinClosed` |
+| HEAD and hunks (scrollbar) | `views/scrollbar.lua` `_head`, `_hunks` | bufnr (+ changedtick) | `BufReadPost`, `BufDelete/Wipeout`, `base:changed`, `FocusGained` |
+| HEAD (split) | session `split._session.head` | per session | on close/file switch |
+| Gutter ranking/color | `comments/gutter.lua` `_cache` | bufnr | `comments:changed` (full reset), `BufDelete/Wipeout` |
+| Previous statuscolumn | `comments/gutter.lua` `_prev` | winid | `WinClosed` |
 
-`FocusGained` vacía la raíz y los HEAD porque un commit, `git mv` o `checkout`
-hechos fuera de Neovim los dejan viejos sin tocar los archivos abiertos
-(decisions.md D26). El mapa de renames no se vacía: cuesta dos `git diff -M` de
-~115 ms en un repo grande, así que solo se recalcula, en segundo plano, si cambió
-la huella del index, de HEAD o del reflog (B22).
+`FocusGained` empties the root and the HEAD caches because a commit, `git mv` or `checkout`
+done outside Neovim leaves them stale without touching the open files
+(decisions.md D26). The renames map is not emptied: it costs two `git diff -M` runs of
+~115 ms in a large repo, so it is only recomputed, in the background, if the
+fingerprint of the index, HEAD or the reflog changed (B22).
 
-**Verificado:** abrir y cerrar 40 archivos deja **1 entrada** en cada cache (no
-40), y 1 solo buffer HEAD vivo (el scratch usa `bufhidden=wipe`).
+**Verified:** opening and closing 40 files leaves **1 entry** in each cache (not
+40), and only 1 live HEAD buffer (the scratch uses `bufhidden=wipe`).
 
-## Optimización clave: cache de la raíz del repo
+## Key optimization: repo root cache
 
-`git rev-parse` es un subproceso, y `rel_path()`/`root()` se llaman en cada
-render/BufEnter/sync. Cachear la raíz por directorio bajó el sync de reuso del
-split de **3.26 ms a 0.020 ms (≈163×)**. Beneficia a TODAS las features (todas
-resuelven `rel_path`).
+`git rev-parse` is a subprocess, and `rel_path()`/`root()` are called on every
+render/BufEnter/sync. Caching the root per directory brought the split reuse sync down
+from **3.26 ms to 0.020 ms (≈163×)**. It benefits ALL features (all
+of them resolve `rel_path`).
 
-## Split: no re-diffear en reuso
+## Split: do not re-diff on reuse
 
-El diff nativo de Neovim se **actualiza solo en vivo** al editar. Nuestro código
-NO re-diffea en el mismo archivo:
+Neovim's native diff **updates itself live** while editing. Our code
+does **not** re-diff on the same file:
 
-- En reuso del mismo archivo solo se chequea (vía `changedtick`, sin leer el
-  buffer si no cambió) si volvió a quedar idéntico a HEAD (→ una columna). Sin
-  git, sin re-diff.
-- El split re-sincroniza solo en `TextChanged` (al terminar un cambio), no por
-  cada tecla en insert (el diff nativo ya es live ahí).
-- Al **cambiar de archivo** se rearma con `diffoff!` + scratch fresco (reusar el
-  scratch dejaba estado de diff residual y desalineaba — ver decisions.md).
+- On reuse of the same file, it only checks (via `changedtick`, without reading the
+  buffer if it did not change) whether it became identical to HEAD again (→ one column). No
+  git, no re-diff.
+- The split re-syncs only on `TextChanged` (when a change finishes), not on
+  every key in insert mode (the native diff is already live there).
+- On **file switch** it is rebuilt with `diffoff!` + a fresh scratch (reusing the
+  scratch left residual diff state and caused misalignment — see decisions.md).
 
-## Inline: HEAD cacheado por buffer
+## Inline: HEAD cached per buffer
 
-`inline.render` corre en cada `TextChanged/TextChangedI`. Antes hacía `git show`
-por tecla; ahora cachea el contenido HEAD por buffer (el HEAD no cambia mientras
-editas), invalidado al recargar/cerrar el buffer.
+`inline.render` runs on every `TextChanged/TextChangedI`. It used to do `git show`
+per keystroke; now it caches the HEAD content per buffer (HEAD does not change while
+you edit), invalidated when the buffer is reloaded/closed.
 
-## Sin fugas de recursos
+## No resource leaks
 
-- Scratch del split: `bufhidden = wipe` → se destruye al cerrar la ventana.
-- Autocmds `BufDelete/BufWipeout/WinClosed` liberan las entradas de cache por
-  buffer/ventana.
-- Cierre de ventanas desde autocmds (`WinClosed`) se **difiere** con
-  `vim.schedule` para no disparar `E855` (no se pueden cerrar ventanas dentro de
+- Split scratch: `bufhidden = wipe` → destroyed when the window closes.
+- `BufDelete/BufWipeout/WinClosed` autocmds release the per-buffer/window
+  cache entries.
+- Window closing from autocmds (`WinClosed`) is **deferred** with
+  `vim.schedule` to avoid triggering `E855` (windows cannot be closed inside
   `WinClosed`).
 
-## Edge-cases verificados sin error
+## Edge cases verified without errors
 
-Archivo fuera del repo, archivo nuevo sin HEAD, buffer especial (neo-tree/nofile),
-archivo grande (pnpm-lock.yaml), 20 cambios de modo seguidos, 30 archivos en
-inline, cerrar el buffer con el split abierto, ida y vuelta entre archivos.
+File outside the repo, new file without HEAD, special buffer (neo-tree/nofile),
+large file (pnpm-lock.yaml), 20 consecutive mode switches, 30 files in
+inline, closing the buffer with the split open, round trip between files.
