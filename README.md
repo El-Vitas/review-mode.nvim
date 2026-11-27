@@ -6,6 +6,8 @@ the comments to an AI agent, without leaving the buffer you are editing.
 Everything is drawn on top of the real file (extmarks, virtual lines and the status column), so you
 keep typing with your LSP, treesitter and keymaps while you review.
 
+![The inline view: deleted lines in red, new lines in green, and two review comments on the code](docs/images/inline.png)
+
 ## Features
 
 - **Comments on lines and ranges.** Multi-line comments anchored with extmarks, so they follow the
@@ -24,6 +26,22 @@ keep typing with your LSP, treesitter and keymaps while you review.
 
 Comments are stored per repository in `.git/review.nvim/comments.json`, so they never end up in a
 commit.
+
+### Screenshots
+
+The split view, with the last commit on the left and the file you are editing on the right:
+
+![The split view: two aligned columns with the native diff](docs/images/split.png)
+
+The peek card of a comment, with its thread and the actions on it:
+
+![A comment's peek card over the code](docs/images/peek.png)
+
+Picking what to compare against:
+
+![The comparison base picker: HEAD, the index or a commit](docs/images/base.png)
+
+These are real captures of the plugin in a small demo project.
 
 ## Install
 
@@ -75,8 +93,9 @@ bash tests/e2e/run.sh   # end-to-end, with a real config and a throwaway repo
 
 ## Documentation
 
-The design notes in `docs/` (architecture, features, commands, highlights, performance and the
-decision log) are written in Spanish.
+`docs/README.md` is the index: architecture, features, the full command reference, highlight
+groups, performance notes, the decision log and the roadmap. `DESIGN.md` explains the idea behind the
+plugin, and `docs/plans/` keeps the original implementation plans.
 
 ## License
 

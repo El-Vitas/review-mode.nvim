@@ -1,105 +1,105 @@
-# review.nvim — Plan 05: Agent (puente RPC + reconciliación AUTO)
+# review.nvim — Plan 05: Agent (RPC bridge + AUTO reconciliation)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development o superpowers:executing-plans. Steps con checkbox (`- [ ]`).
-> **Diseño maestro:** `docs/roadmap.md` §1 (fuente de verdad, supera al plan 05 viejo) + "Contrato del core" en `docs/plans/00-core.md`. Toda firma del core citada aquí DEBE coincidir con `00-core.md`.
+> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development or superpowers:executing-plans. Steps use checkboxes (`- [ ]`).
+> **Master design:** `docs/roadmap.md` §1 (source of truth, supersedes the old plan 05) + "`core` contract" in `docs/plans/00-core.md`. Every core signature cited here **must** match `00-core.md`.
 
-**Goal:** Que un agente externo (Claude Code, script, etc.) pueda **leer, comentar, responder,
-resolver, actualizar y limpiar** comentarios de review sobre la MISMA instancia de Neovim que el
-humano usa, hablando el RPC nativo de Neovim (`--remote-expr`), sin sockets propios. Y que cuando el
-agente **edite código en disco** (con sus propias herramientas, FUERA de nvim), Neovim **recargue el
-buffer y re-ancle los comentarios automáticamente**, sin pisar cambios sin guardar del humano.
+**Goal:** Let an external agent (Claude Code, a script, etc.) **read, comment, reply to,
+resolve, update and clean up** review comments on the **same** Neovim instance that the
+human uses, speaking Neovim's native RPC (`--remote-expr`), without custom sockets. And when the
+agent **edits code on disk** (with its own tools, **outside** nvim), Neovim must **reload the
+buffer and re-anchor the comments automatically**, without overwriting the human's unsaved changes.
 
-**Architecture:** El código lo escribe el agente LIBREMENTE en disco; review.nvim NO edita código.
-Solo los comentarios pasan por nvim (vía `core.state`, única fuente de verdad). El problema no es
-"editar sin choques" (eso lo maneja el agente en disco), sino **enterarse del cambio en disco,
-recargar el buffer con un PATCH mínimo (no `:edit!`) y dejar que los extmarks se re-anclen solos por
-gravity**. Dos slices tocados:
+**Architecture:** The agent writes the code **freely** to disk; review.nvim does not edit code.
+Only the comments go through nvim (via `core.state`, the single source of truth). The problem is not
+"editing without collisions" (the agent handles that on disk), but **finding out about the change on disk,
+reloading the buffer with a minimal **patch** (not `:edit!`) and letting the extmarks re-anchor themselves by
+gravity**. Two slices are touched:
 
-- `features/comments/` — se extiende: capturar `anchor_text` al crear, marcar `stale`, distinguir
-  autoría y threading en render/gutter/peek, filtros de lista por autor/respondido, y una
-  `render.reconcile` que re-sincroniza posiciones + marca stale (reacciona a un evento, sin conocer
-  al agente).
-- `features/agent/` — nuevo: `reconcile.lua` (patch mínimo por diff, el CORAZÓN), `watch.lua`
-  (watcher `vim.uv.fs_event` + debounce), `rpc.lua` (API serializable sobre `core.state`),
-  `init.lua` (`_G.ReviewAgent`, `opts.enabled`, cablea el watcher). Deshabilitada por defecto.
+- `features/comments/` — extended: capture `anchor_text` on creation, mark `stale`, distinguish
+  authorship and threading in render/gutter/peek, list filters by author/answered, and a
+  `render.reconcile` that re-syncs positions + marks stale (it reacts to an event, without knowing
+  the agent).
+- `features/agent/` — new: `reconcile.lua` (minimal diff patch, the heart), `watch.lua`
+  (`vim.uv.fs_event` watcher + debounce), `rpc.lua` (serializable API over `core.state`),
+  `init.lua` (`_G.ReviewAgent`, `opts.enabled`, wires up the watcher). Disabled by default.
 
-**Coordinación entre slices = SOLO eventos** (regla dura del core): `agent/reconcile` emite
-`buffer:reconciled {bufnr}`; `comments` se suscribe y re-sincroniza. Ninguno hace
-`require("review.features.<otra>")`.
+**Coordination between slices = only events** (hard rule of the core): `agent/reconcile` emits
+`buffer:reconciled {bufnr}`; `comments` subscribes and re-syncs. Neither does
+`require("review.features.<other>")`.
 
 **Tech Stack:** Lua, Neovim ≥ 0.10 (`vim.diff` result_type=indices, `vim.uv.new_fs_event`,
-`vim.json`, `v:servername`, `--remote-expr`), plenary.nvim (tests busted).
+`vim.json`, `v:servername`, `--remote-expr`), plenary.nvim (busted tests).
 
 ## Global Constraints
 
-- **El código lo escribe el agente en disco, nunca review.nvim.** Este plan jamás llama
-  `nvim_buf_set_lines` para "aplicar cambios del agente" salvo dentro de `reconcile.patch`, que
-  copia disco→buffer como patch mínimo para preservar extmarks (no es editar, es recargar).
-- Ninguna feature hace `require("review.features.<otra>")`. Solo `require("review.core")`.
-  Coordinación = `core.events`.
-- Nunca pisar cambios sin guardar: si `vim.bo[bufnr].modified`, `reconcile.patch` NO aplica y avisa.
-- Todas las funciones expuestas al agente son **serializables**: reciben/devuelven `string` (JSON) o
-  primitivos. `list()`/`get()` NUNCA incluyen `_extmark_id` (runtime).
-- Toda mutación desde el agente (`add/reply/resolve/unresolve/update/delete/clean_resolved`) persiste
-  inmediatamente (`core.state.persist()`).
-- Feature **deshabilitada por defecto**: `_G.ReviewAgent` y el watcher solo se montan si
+- **The code is written by the agent on disk, never by review.nvim.** This plan never calls
+  `nvim_buf_set_lines` to "apply agent changes" except inside `reconcile.patch`, which
+  copies disk→buffer as a minimal patch to preserve extmarks (it is not editing, it is reloading).
+- No feature does `require("review.features.<other>")`. Only `require("review.core")`.
+  Coordination = `core.events`.
+- Never overwrite unsaved changes: if `vim.bo[bufnr].modified`, `reconcile.patch` does **not** apply and warns.
+- All functions exposed to the agent are **serializable**: they receive/return `string` (JSON) or
+  primitives. `list()`/`get()` **never** include `_extmark_id` (runtime-only).
+- Every mutation from the agent (`add/reply/resolve/unresolve/update/delete/clean_resolved`) persists
+  immediately (`core.state.persist()`).
+- Feature **disabled by default**: `_G.ReviewAgent` and the watcher are only mounted if
   `features.agent = { enabled = true }`.
-- Los watchers `vim.uv.fs_event` se cierran en `BufWipeout`/`BufDelete` (sin fugas, como los demás
-  caches — ver `performance.md`).
-- Retro-compatibilidad del modelo: los campos nuevos (`reply_to`, `anchor_text`, `stale`) son
-  opcionales; `state.persist` ya copia todo campo que no sea `_extmark_id`, así que persisten solos.
-  JSON viejo sin esos campos sigue cargando (defaults en `nil`/`false`).
-- Tests: `nvim --headless -c "PlenaryBustedFile tests/agent/<spec>.lua" -c "qa"`. Suite completa:
+- The `vim.uv.fs_event` watchers are closed on `BufWipeout`/`BufDelete` (no leaks, like the other
+  caches — see `performance.md`).
+- Model backwards compatibility: the new fields (`reply_to`, `anchor_text`, `stale`) are
+  optional; `state.persist` already copies every field that is not `_extmark_id`, so they persist on their own.
+  Old JSON without those fields still loads (defaults `nil`/`false`).
+- Tests: `nvim --headless -c "PlenaryBustedFile tests/agent/<spec>.lua" -c "qa"`. Full suite:
   `nvim --headless -c "PlenaryBustedDirectory tests/ {minimal_init='tests/minimal_init.lua'}" -c "qa"`.
 
 ---
 
-### Task 1: `core.state` — helpers de threading (`replies`, `thread`) + round-trip de campos nuevos
+### Task 1: `core.state` — threading helpers (`replies`, `thread`) + round-trip of new fields
 
 **Files:**
 - Modify: `lua/review/core/state.lua`
 - Modify: `tests/core/state_spec.lua`
 
 **Interfaces:**
-- Consumes: `state.all()`, `state.by_id(id)` (ya existen).
+- Consumes: `state.all()`, `state.by_id(id)` (already exist).
 - Produces:
-  - `state.replies(id)` → `comment[]` — comentarios cuyo `reply_to == id`, en orden de inserción.
-  - `state.thread(id)` → `comment[]` — `{ padre, ...replies }` (padre primero); `{}` si `id` no existe.
-  - Confirmación (test) de que `reply_to`/`anchor_text`/`stale` sobreviven `persist()`/`load()`.
+  - `state.replies(id)` → `comment[]` — comments whose `reply_to == id`, in insertion order.
+  - `state.thread(id)` → `comment[]` — `{ parent, ...replies }` (parent first); `{}` if `id` does not exist.
+  - Confirmation (test) that `reply_to`/`anchor_text`/`stale` survive `persist()`/`load()`.
 
-- [ ] **Step 1: Agregar tests al final de `tests/core/state_spec.lua`** (dentro del `describe` existente, o un `describe` nuevo)
+- [ ] **Step 1: Add tests at the end of `tests/core/state_spec.lua`** (inside the existing `describe`, or a new `describe`)
 
 ```lua
-describe("core.state threading + campos nuevos", function()
+describe("core.state threading + new fields", function()
   before_each(function()
     local tmp = vim.fn.tempname(); vim.fn.mkdir(tmp, "p")
     store.root_fn = function() return tmp end
     state._reset()
   end)
 
-  it("replies(id) devuelve solo los hijos de ese comentario", function()
-    local parent = state.add({ path = "a.ts", lnum = 1, text = "duda" })
-    state.add({ path = "a.ts", lnum = 1, text = "respuesta 1", reply_to = parent.id, author = "agent" })
-    state.add({ path = "a.ts", lnum = 1, text = "respuesta 2", reply_to = parent.id, author = "agent" })
-    state.add({ path = "a.ts", lnum = 2, text = "otro top-level" })
+  it("replies(id) returns only the children of that comment", function()
+    local parent = state.add({ path = "a.ts", lnum = 1, text = "question" })
+    state.add({ path = "a.ts", lnum = 1, text = "reply 1", reply_to = parent.id, author = "agent" })
+    state.add({ path = "a.ts", lnum = 1, text = "reply 2", reply_to = parent.id, author = "agent" })
+    state.add({ path = "a.ts", lnum = 2, text = "another top-level" })
     local r = state.replies(parent.id)
     assert.are.equal(2, #r)
-    assert.are.equal("respuesta 1", r[1].text)
+    assert.are.equal("reply 1", r[1].text)
   end)
 
-  it("thread(id) devuelve el padre seguido de sus replies", function()
-    local parent = state.add({ path = "a.ts", lnum = 1, text = "duda" })
-    state.add({ path = "a.ts", lnum = 1, text = "resp", reply_to = parent.id })
+  it("thread(id) returns the parent followed by its replies", function()
+    local parent = state.add({ path = "a.ts", lnum = 1, text = "question" })
+    state.add({ path = "a.ts", lnum = 1, text = "reply", reply_to = parent.id })
     local t = state.thread(parent.id)
     assert.are.equal(2, #t)
     assert.are.equal(parent.id, t[1].id)
   end)
 
-  it("thread(id) inexistente devuelve lista vacía", function()
-    assert.are.same({}, state.thread("no-existe"))
+  it("thread(id) for a nonexistent id returns an empty list", function()
+    assert.are.same({}, state.thread("does-not-exist"))
   end)
 
-  it("reply_to/anchor_text/stale sobreviven persist + load", function()
+  it("reply_to/anchor_text/stale survive persist + load", function()
     local p = state.add({ path = "a.ts", lnum = 3, text = "x", anchor_text = "const foo = 1" })
     state.add({ path = "a.ts", lnum = 3, text = "y", reply_to = p.id, author = "agent" })
     state.update(p.id, { stale = true })
@@ -112,15 +112,15 @@ describe("core.state threading + campos nuevos", function()
 end)
 ```
 
-- [ ] **Step 2: Correr y ver fallar**
+- [ ] **Step 2: Run and watch it fail**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/core/state_spec.lua" -c "qa"`
 Expected: FAIL (`attempt to call field 'replies' (a nil value)`).
 
-- [ ] **Step 3: Implementar `replies`/`thread` en `lua/review/core/state.lua`** (agregar antes de `return M`)
+- [ ] **Step 3: Implement `replies`/`thread` in `lua/review/core/state.lua`** (add before `return M`)
 
 ```lua
---- Comentarios que responden a `id` (reply_to == id), en orden de inserción.
+--- Comments that reply to `id` (reply_to == id), in insertion order.
 function M.replies(id)
   local out = {}
   for _, c in ipairs(list) do
@@ -129,8 +129,8 @@ function M.replies(id)
   return out
 end
 
---- Hilo completo de un comentario: el padre primero, luego sus respuestas.
---- Lista vacía si `id` no existe.
+--- Full thread of a comment: the parent first, then its replies.
+--- Empty list if `id` does not exist.
 function M.thread(id)
   local parent = M.by_id(id)
   if not parent then return {} end
@@ -140,66 +140,66 @@ function M.thread(id)
 end
 ```
 
-- [ ] **Step 4: Correr y ver pasar**
+- [ ] **Step 4: Run and watch it pass**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/core/state_spec.lua" -c "qa"`
-Expected: PASS (los previos + 4 nuevos).
+Expected: PASS (the previous ones + 4 new).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(core/state): helpers de threading (replies/thread) para comentarios del agente"
+git commit -q -m "feat(core/state): threading helpers (replies/thread) for agent comments"
 ```
 
 ---
 
-### Task 2: `comments` — capturar `anchor_text` al crear + `render.reconcile` (sync + stale)
+### Task 2: `comments` — capture `anchor_text` on creation + `render.reconcile` (sync + stale)
 
 **Files:**
-- Modify: `lua/review/features/comments/mode.lua` (capturar `anchor_text` en `_add`)
-- Modify: `lua/review/features/comments/render.lua` (agregar `render.reconcile`)
+- Modify: `lua/review/features/comments/mode.lua` (capture `anchor_text` in `_add`)
+- Modify: `lua/review/features/comments/render.lua` (add `render.reconcile`)
 - Modify: `tests/comments/mode_spec.lua`
 - Modify: `tests/comments/render_spec.lua`
 
 **Interfaces:**
 - Consumes: `core.git.rel_path`, `core.state.for_path`, `core.state.update`, `core.ns.comments`.
 - Produces:
-  - `mode._add(...)` ahora guarda `anchor_text` = texto de la línea `lnum` del buffer (o `""` si no
-    hay). Es la malla de seguridad para detectar re-anclaje incierto (roadmap §1.3).
-  - `render.reconcile(core, bufnr)` — corre `sync_positions` (ya existe) y luego, por cada comentario
-    con `anchor_text`, marca `stale = true` si la línea actual del extmark ya NO contiene ese texto
-    (o lo des-marca si volvió a coincidir). Re-renderiza. Pensada para llamarse tras un patch de disco.
+  - `mode._add(...)` now stores `anchor_text` = text of line `lnum` of the buffer (or `""` if there
+    is none). It is the safety net to detect uncertain re-anchoring (roadmap §1.3).
+  - `render.reconcile(core, bufnr)` — runs `sync_positions` (already exists) and then, for each comment
+    with `anchor_text`, marks `stale = true` if the extmark's current line NO longer contains that text
+    (or un-marks it if it matches again). Re-renders. Meant to be called after a disk patch.
 
-- [ ] **Step 1: Test en `tests/comments/mode_spec.lua`** (agregar dentro del describe existente)
+- [ ] **Step 1: Test in `tests/comments/mode_spec.lua`** (add inside the existing describe)
 
 ```lua
-  it("_add captura anchor_text de la línea comentada", function()
-    local c = mode._add(core, bufnr, 3, 3, "ojo con l3")
+  it("_add captures anchor_text of the commented line", function()
+    local c = mode._add(core, bufnr, 3, 3, "watch out for l3")
     assert.are.equal("l3", c.anchor_text)
   end)
 ```
 
-- [ ] **Step 2: Test en `tests/comments/render_spec.lua`** (agregar dentro del describe existente)
+- [ ] **Step 2: Test in `tests/comments/render_spec.lua`** (add inside the existing describe)
 
 ```lua
-  it("reconcile marca stale cuando la línea anclada ya no coincide", function()
+  it("reconcile marks stale when the anchored line no longer matches", function()
     local c = state.add({ path = "foo.ts", lnum = 2, text = "x", anchor_text = "l2" })
     render.render(core, bufnr)
-    -- el agente reescribió esa línea en disco (simulamos el resultado en el buffer)
-    vim.api.nvim_buf_set_lines(bufnr, 1, 2, false, { "TOTALMENTE DISTINTO" })
+    -- the agent rewrote that line on disk (we simulate the result in the buffer)
+    vim.api.nvim_buf_set_lines(bufnr, 1, 2, false, { "COMPLETELY DIFFERENT" })
     render.reconcile(core, bufnr)
     assert.is_true(state.by_id(c.id).stale)
   end)
 
-  it("reconcile des-marca stale si la línea vuelve a coincidir", function()
+  it("reconcile un-marks stale if the line matches again", function()
     local c = state.add({ path = "foo.ts", lnum = 2, text = "x", anchor_text = "l2", stale = true })
     render.render(core, bufnr)
-    render.reconcile(core, bufnr)  -- la línea 2 sigue siendo "l2"
+    render.reconcile(core, bufnr)  -- line 2 is still "l2"
     assert.is_false(state.by_id(c.id).stale)
   end)
 
-  it("reconcile no marca stale si el comentario no tiene anchor_text", function()
+  it("reconcile does not mark stale if the comment has no anchor_text", function()
     local c = state.add({ path = "foo.ts", lnum = 2, text = "x" })
     render.render(core, bufnr)
     render.reconcile(core, bufnr)
@@ -207,10 +207,10 @@ git commit -q -m "feat(core/state): helpers de threading (replies/thread) para c
   end)
 ```
 
-- [ ] **Step 3: Capturar `anchor_text` en `mode._add`** (`lua/review/features/comments/mode.lua`)
+- [ ] **Step 3: Capture `anchor_text` in `mode._add`** (`lua/review/features/comments/mode.lua`)
 
-En `M._add`, justo antes de `local c = core.state.add({ ... })`, calcular el texto de la línea ancla
-y pasarlo:
+In `M._add`, right before `local c = core.state.add({ ... })`, compute the text of the anchor line
+and pass it:
 
 ```lua
   local anchor_text = ""
@@ -222,15 +222,15 @@ y pasarlo:
   local c = core.state.add({ path = rel, lnum = lnum, end_lnum = end_lnum, text = text, anchor_text = anchor_text })
 ```
 
-(reemplaza la línea `local c = core.state.add({ path = rel, lnum = lnum, end_lnum = end_lnum, text = text })`).
+(it replaces the line `local c = core.state.add({ path = rel, lnum = lnum, end_lnum = end_lnum, text = text })`).
 
-- [ ] **Step 4: Implementar `render.reconcile`** (`lua/review/features/comments/render.lua`, antes de `return M`)
+- [ ] **Step 4: Implement `render.reconcile`** (`lua/review/features/comments/render.lua`, before `return M`)
 
 ```lua
---- Re-sincroniza posiciones desde los extmarks y marca `stale` los comentarios
---- cuya línea anclada dejó de coincidir con su `anchor_text` (malla de seguridad
---- tras un cambio de código en disco). Des-marca los que volvieron a coincidir.
---- No-op si el buffer está fuera del repo.
+--- Re-syncs positions from the extmarks and marks as `stale` the comments
+--- whose anchored line stopped matching its `anchor_text` (safety net
+--- after a code change on disk). Un-marks those that match again.
+--- No-op if the buffer is outside the repo.
 function M.reconcile(core, bufnr)
   local rel = core.git.rel_path(bufnr)
   if not rel then return end
@@ -245,8 +245,8 @@ function M.reconcile(core, bufnr)
       if row >= 0 and row < last then
         now = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
       end
-      -- coincide si la línea actual contiene el texto ancla (tolerante a
-      -- reindentación/espacios: comparamos trims).
+      -- it matches if the current line contains the anchor text (tolerant of
+      -- reindentation/whitespace: we compare trims).
       local matches = vim.trim(now) == vim.trim(c.anchor_text)
       if matches and c.stale then
         core.state.update(c.id, { stale = false })
@@ -260,21 +260,21 @@ function M.reconcile(core, bufnr)
 end
 ```
 
-- [ ] **Step 5: Correr y ver pasar**
+- [ ] **Step 5: Run and watch it pass**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/comments/mode_spec.lua" -c "qa" && nvim --headless -c "PlenaryBustedFile tests/comments/render_spec.lua" -c "qa"`
-Expected: PASS (mode: previos + 1; render: previos + 3).
+Expected: PASS (mode: previous + 1; render: previous + 3).
 
 - [ ] **Step 6: Commit**
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(comments): capturar anchor_text al crear + render.reconcile (sync + marca stale)"
+git commit -q -m "feat(comments): capture anchor_text on creation + render.reconcile (sync + stale mark)"
 ```
 
 ---
 
-### Task 3: `agent/reconcile.lua` — patch mínimo por diff (EL CORAZÓN)
+### Task 3: `agent/reconcile.lua` — minimal diff patch (the heart)
 
 **Files:**
 - Create: `lua/review/features/agent/reconcile.lua`, `tests/agent/reconcile_spec.lua`
@@ -282,14 +282,14 @@ git commit -q -m "feat(comments): capturar anchor_text al crear + render.reconci
 **Interfaces:**
 - Consumes: `core.git.rel_path`, `core.events.emit`.
 - Produces:
-  - `reconcile.patch(core, bufnr)` → `"applied"|"identical"|"conflict"|"skipped"` — lee el archivo del
-    disco y aplica SOLO los hunks (`vim.diff` result_type=indices) al buffer con `nvim_buf_set_lines`
-    de abajo hacia arriba, preservando los extmarks (se re-anclan solos por gravity). Deja el buffer
-    `nomodified`. Si el buffer tiene cambios sin guardar (`modified`) → NO aplica, devuelve
-    `"conflict"`. Si disco == buffer → `"identical"`. Fuera del repo / sin nombre / sin extmark →
-    `"skipped"`. Tras aplicar, emite `buffer:reconciled { bufnr = bufnr }`.
+  - `reconcile.patch(core, bufnr)` → `"applied"|"identical"|"conflict"|"skipped"` — reads the file from
+    disk and applies only the hunks (`vim.diff` result_type=indices) to the buffer with `nvim_buf_set_lines`
+    from bottom to top, preserving the extmarks (they re-anchor themselves by gravity). Leaves the buffer
+    `nomodified`. If the buffer has unsaved changes (`modified`) → it does **not** apply, returns
+    `"conflict"`. If disk == buffer → `"identical"`. Outside the repo / without a name / without an extmark →
+    `"skipped"`. After applying, it emits `buffer:reconciled { bufnr = bufnr }`.
 
-- [ ] **Step 1: Test que falla — `tests/agent/reconcile_spec.lua`**
+- [ ] **Step 1: Failing test — `tests/agent/reconcile_spec.lua`**
 
 ```lua
 local store = require("review.core.store")
@@ -320,35 +320,35 @@ describe("agent.reconcile.patch", function()
     vim.bo[bufnr].modified = false
   end)
 
-  it("identical si disco == buffer", function()
+  it("identical if disk == buffer", function()
     assert.are.equal("identical", reconcile.patch(core, bufnr))
   end)
 
-  it("conflict si el buffer tiene cambios sin guardar", function()
-    vim.api.nvim_buf_set_lines(bufnr, 0, 0, false, { "sin guardar" })
+  it("conflict if the buffer has unsaved changes", function()
+    vim.api.nvim_buf_set_lines(bufnr, 0, 0, false, { "unsaved" })
     assert.is_true(vim.bo[bufnr].modified)
     write_file(path, { "l1", "l2", "l3", "l4", "l5", "l6" })
     assert.are.equal("conflict", reconcile.patch(core, bufnr))
   end)
 
-  it("applied: inserción arriba corre el extmark y queda nomodified", function()
-    -- extmark de comentario en la línea 3 (row 2)
+  it("applied: insertion above shifts the extmark and the buffer ends up nomodified", function()
+    -- comment extmark on line 3 (row 2)
     local id = vim.api.nvim_buf_set_extmark(bufnr, ns.comments, 2, 0, {})
-    -- el agente insertó una línea al principio en disco
-    write_file(path, { "NUEVA", "l1", "l2", "l3", "l4", "l5" })
+    -- the agent inserted a line at the start on disk
+    write_file(path, { "NEW", "l1", "l2", "l3", "l4", "l5" })
     assert.are.equal("applied", reconcile.patch(core, bufnr))
-    -- el buffer refleja el disco
+    -- the buffer reflects the disk
     assert.are.same(
-      { "NUEVA", "l1", "l2", "l3", "l4", "l5" },
+      { "NEW", "l1", "l2", "l3", "l4", "l5" },
       vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
     )
-    -- el extmark bajó de row 2 a row 3 (gravity)
+    -- the extmark moved down from row 2 to row 3 (gravity)
     local pos = vim.api.nvim_buf_get_extmark_by_id(bufnr, ns.comments, id, {})
     assert.are.equal(3, pos[1])
     assert.is_false(vim.bo[bufnr].modified)
   end)
 
-  it("applied: modificación en el medio no mueve extmarks anteriores", function()
+  it("applied: a modification in the middle does not move earlier extmarks", function()
     local id = vim.api.nvim_buf_set_extmark(bufnr, ns.comments, 0, 0, {})
     write_file(path, { "l1", "l2", "l3-MOD", "l4", "l5" })
     assert.are.equal("applied", reconcile.patch(core, bufnr))
@@ -357,7 +357,7 @@ describe("agent.reconcile.patch", function()
     assert.are.equal("l3-MOD", vim.api.nvim_buf_get_lines(bufnr, 2, 3, false)[1])
   end)
 
-  it("emite buffer:reconciled al aplicar", function()
+  it("emits buffer:reconciled when applying", function()
     local fired = nil
     events.on("buffer:reconciled", function(p) fired = p.bufnr end)
     write_file(path, { "l1", "l2", "l3", "l4", "l5", "l6" })
@@ -368,19 +368,19 @@ describe("agent.reconcile.patch", function()
 end)
 ```
 
-- [ ] **Step 2: Correr y ver fallar**
+- [ ] **Step 2: Run and watch it fail**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/agent/reconcile_spec.lua" -c "qa"`
 Expected: FAIL ("module 'review.features.agent.reconcile' not found").
 
-- [ ] **Step 3: Implementar `lua/review/features/agent/reconcile.lua`**
+- [ ] **Step 3: Implement `lua/review/features/agent/reconcile.lua`**
 
 ```lua
 local M = {}
 
---- Aplica el contenido de disco al buffer como PATCH mínimo (no `:edit!`), para
---- que los extmarks (y por lo tanto los comentarios anclados) se re-anclen solos
---- por gravity. Nunca pisa cambios sin guardar del humano.
+--- Applies the disk content to the buffer as a minimal patch (not `:edit!`), so
+--- that the extmarks (and therefore the anchored comments) re-anchor themselves
+--- by gravity. Never overwrites the human's unsaved changes.
 --- @return "applied"|"identical"|"conflict"|"skipped"
 function M.patch(core, bufnr)
   if not vim.api.nvim_buf_is_valid(bufnr) then return "skipped" end
@@ -390,7 +390,7 @@ function M.patch(core, bufnr)
   local name = vim.api.nvim_buf_get_name(bufnr)
   if name == "" then return "skipped" end
 
-  -- Conflicto: hay ediciones sin guardar → NO pisar (ver roadmap §1.3.3).
+  -- Conflict: there are unsaved edits → do not overwrite (see roadmap §1.3.3).
   if vim.bo[bufnr].modified then return "conflict" end
 
   local ok, disk = pcall(vim.fn.readfile, name)
@@ -404,9 +404,9 @@ function M.patch(core, bufnr)
   local hunks = vim.diff(a, b, { result_type = "indices" })
   if not hunks or #hunks == 0 then return "identical" end
 
-  -- Aplicar de ABAJO hacia arriba para no invalidar los índices de los hunks
-  -- superiores. Cada hunk = { start_a, count_a, start_b, count_b } (1-based en a
-  -- y b; count==0 marca inserción/borrado puro con start = línea previa).
+  -- Apply from bottom to top so as not to invalidate the indices of the upper
+  -- hunks. Each hunk = { start_a, count_a, start_b, count_b } (1-based in a
+  -- and b; count==0 marks a pure insertion/deletion with start = previous line).
   for i = #hunks, 1, -1 do
     local h = hunks[i]
     local start_a, count_a, start_b, count_b = h[1], h[2], h[3], h[4]
@@ -418,8 +418,8 @@ function M.patch(core, bufnr)
 
     local s, e
     if count_a == 0 then
-      -- inserción: `start_a` es la línea (1-based) DESPUÉS de la cual insertar;
-      -- en 0-based eso es el índice `start_a` (set_lines(start_a, start_a, ...)).
+      -- insertion: `start_a` is the line (1-based) after which to insert;
+      -- in 0-based that is the index `start_a` (set_lines(start_a, start_a, ...)).
       s = start_a
       e = start_a
     else
@@ -437,16 +437,16 @@ end
 return M
 ```
 
-- [ ] **Step 4: Correr y ver pasar**
+- [ ] **Step 4: Run and watch it pass**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/agent/reconcile_spec.lua" -c "qa"`
 Expected: PASS (5).
 
-- [ ] **Step 5: Suscribir `comments` a `buffer:reconciled`** (`lua/review/features/comments/init.lua`, dentro de `M.setup`, tras los autocmds existentes)
+- [ ] **Step 5: Subscribe `comments` to `buffer:reconciled`** (`lua/review/features/comments/init.lua`, inside `M.setup`, after the existing autocmds)
 
 ```lua
-  -- El agente (o cualquiera) editó el archivo en disco y reconcile aplicó el
-  -- patch al buffer; re-sincronizamos posiciones y marcamos stale los dudosos.
+  -- The agent (or anyone) edited the file on disk and reconcile applied the
+  -- patch to the buffer; we re-sync positions and mark the doubtful ones as stale.
   core.events.on("buffer:reconciled", function(payload)
     if payload and payload.bufnr and vim.api.nvim_buf_is_valid(payload.bufnr) then
       render.reconcile(core, payload.bufnr)
@@ -454,24 +454,24 @@ Expected: PASS (5).
   end)
 ```
 
-- [ ] **Step 6: Test de integración del evento — agregar a `tests/comments/init_spec.lua`**
+- [ ] **Step 6: Event integration test — add to `tests/comments/init_spec.lua`**
 
 ```lua
-  it("buffer:reconciled dispara render.reconcile y re-sincroniza posiciones", function()
+  it("buffer:reconciled triggers render.reconcile and re-syncs positions", function()
     comments.setup(core, { leader = "<leader>r" })
     local events = require("review.core.events")
     local c = state.add({ path = "foo.ts", lnum = 2, text = "x", anchor_text = "l2" })
     require("review.features.comments.render").render(core, bufnr)
     vim.api.nvim_set_current_buf(bufnr)
-    -- simulamos que reconcile ya aplicó un patch: se insertó una línea arriba
-    vim.api.nvim_buf_set_lines(bufnr, 0, 0, false, { "nueva" })
+    -- we simulate that reconcile already applied a patch: a line was inserted above
+    vim.api.nvim_buf_set_lines(bufnr, 0, 0, false, { "new" })
     events.emit("buffer:reconciled", { bufnr = bufnr })
     vim.wait(50)
     assert.are.equal(3, state.by_id(c.id).lnum)  -- 2 -> 3
   end)
 ```
 
-- [ ] **Step 7: Correr suite de comments + agent**
+- [ ] **Step 7: Run the comments + agent suite**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedDirectory tests/comments {minimal_init='tests/minimal_init.lua'}" -c "qa" && nvim --headless -c "PlenaryBustedFile tests/agent/reconcile_spec.lua" -c "qa"`
 Expected: PASS.
@@ -480,12 +480,12 @@ Expected: PASS.
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(agent): reconcile.patch (patch minimo por diff) + comments reacciona a buffer:reconciled"
+git commit -q -m "feat(agent): reconcile.patch (minimal diff patch) + comments reacts to buffer:reconciled"
 ```
 
 ---
 
-### Task 4: `agent/watch.lua` — watcher de disco con debounce + limpieza
+### Task 4: `agent/watch.lua` — disk watcher with debounce + cleanup
 
 **Files:**
 - Create: `lua/review/features/agent/watch.lua`
@@ -494,15 +494,15 @@ git commit -q -m "feat(agent): reconcile.patch (patch minimo por diff) + comment
 **Interfaces:**
 - Consumes: `reconcile.patch` (Task 3), `core.git.rel_path`.
 - Produces:
-  - `watch.attach(core, bufnr)` — si el buffer es un archivo del repo (`rel_path ~= nil`) y no tiene
-    watcher, crea un `vim.uv.new_fs_event` sobre su archivo; en cada evento hace debounce (~150 ms) y
-    corre `reconcile.patch(core, bufnr)` dentro de `vim.schedule` (las APIs de buffer no son seguras
-    en el callback de libuv). Idempotente.
-  - `watch.detach(bufnr)` — cierra y olvida el watcher del buffer. Idempotente.
-  - `watch.detach_all()` — cierra todos (para tests / teardown).
-  - `watch._debounce_ms` — sobrescribible en tests.
+  - `watch.attach(core, bufnr)` — if the buffer is a file of the repo (`rel_path ~= nil`) and has no
+    watcher, creates a `vim.uv.new_fs_event` on its file; on each event it debounces (~150 ms) and
+    runs `reconcile.patch(core, bufnr)` inside `vim.schedule` (buffer APIs are not safe
+    in the libuv callback). Idempotent.
+  - `watch.detach(bufnr)` — closes and forgets the buffer's watcher. Idempotent.
+  - `watch.detach_all()` — closes all of them (for tests / teardown).
+  - `watch._debounce_ms` — overridable in tests.
 
-- [ ] **Step 1: Test que falla — `tests/agent/watch_spec.lua`**
+- [ ] **Step 1: Failing test — `tests/agent/watch_spec.lua`**
 
 ```lua
 local store = require("review.core.store")
@@ -531,25 +531,25 @@ describe("agent.watch", function()
 
   after_each(function() watch.detach_all() end)
 
-  it("attach es no-op para buffers fuera del repo", function()
+  it("attach is a no-op for buffers outside the repo", function()
     local other = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_name(other, "/fuera/x.ts")
+    vim.api.nvim_buf_set_name(other, "/outside/x.ts")
     assert.has_no.errors(function() watch.attach(core, other) end)
     assert.is_false(watch._has(other))
   end)
 
-  it("attach crea un watcher y detach lo cierra", function()
+  it("attach creates a watcher and detach closes it", function()
     watch.attach(core, bufnr)
     assert.is_true(watch._has(bufnr))
     watch.detach(bufnr)
     assert.is_false(watch._has(bufnr))
   end)
 
-  it("al cambiar el archivo en disco, reconcilia el buffer (debounced)", function()
+  it("when the file changes on disk, it reconciles the buffer (debounced)", function()
     watch.attach(core, bufnr)
     local reconciled = false
     events.on("buffer:reconciled", function() reconciled = true end)
-    -- el agente escribe en disco
+    -- the agent writes to disk
     vim.fn.writefile({ "l1", "l2", "l3", "l4" }, path)
     vim.wait(1000, function() return reconciled end)
     assert.is_true(reconciled)
@@ -558,12 +558,12 @@ describe("agent.watch", function()
 end)
 ```
 
-- [ ] **Step 2: Correr y ver fallar**
+- [ ] **Step 2: Run and watch it fail**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/agent/watch_spec.lua" -c "qa"`
 Expected: FAIL ("module 'review.features.agent.watch' not found").
 
-- [ ] **Step 3: Implementar `lua/review/features/agent/watch.lua`**
+- [ ] **Step 3: Implement `lua/review/features/agent/watch.lua`**
 
 ```lua
 local reconcile = require("review.features.agent.reconcile")
@@ -577,8 +577,8 @@ function M._has(bufnr)
   return M._watchers[bufnr] ~= nil
 end
 
---- Corre reconcile.patch en el hilo principal (las APIs de buffer NO son seguras
---- dentro del callback de libuv).
+--- Runs reconcile.patch on the main thread (buffer APIs are not safe
+--- inside the libuv callback).
 local function run_patch(core, bufnr)
   vim.schedule(function()
     if vim.api.nvim_buf_is_valid(bufnr) then
@@ -603,7 +603,7 @@ function M.attach(core, bufnr)
   local ok = pcall(function()
     fs:start(path, {}, function(err)
       if err then return end
-      -- Debounce: agrupar ráfagas de escritura del agente en un solo patch.
+      -- Debounce: group the agent's write bursts into a single patch.
       if entry.timer then
         entry.timer:stop()
         entry.timer:close()
@@ -613,7 +613,7 @@ function M.attach(core, bufnr)
       entry.timer = t
       t:start(M._debounce_ms, 0, function()
         t:stop(); t:close(); entry.timer = nil
-        -- Algunos editores reemplazan el inode (rename); re-armar el watch.
+        -- Some editors replace the inode (rename); re-arm the watch.
         pcall(function() fs:stop() end)
         pcall(function() fs:start(path, {}, function() end) end)
         run_patch(core, bufnr)
@@ -642,45 +642,45 @@ end
 return M
 ```
 
-- [ ] **Step 4: Correr y ver pasar**
+- [ ] **Step 4: Run and watch it pass**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/agent/watch_spec.lua" -c "qa"`
-Expected: PASS (3). (El watcher usa el filesystem real; el test escribe y espera hasta 1 s.)
+Expected: PASS (3). (The watcher uses the real filesystem; the test writes and waits up to 1 s.)
 
 - [ ] **Step 5: Commit**
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(agent/watch): watcher fs_event con debounce + limpieza sin fugas"
+git commit -q -m "feat(agent/watch): fs_event watcher with debounce + leak-free cleanup"
 ```
 
 ---
 
-### Task 5: `agent/rpc.lua` — API serializable completa
+### Task 5: `agent/rpc.lua` — complete serializable API
 
 **Files:**
 - Create: `lua/review/features/agent/rpc.lua`, `tests/agent/rpc_spec.lua`
 
 **Interfaces:**
-- Consumes: `core.state.*`, `core.git.rel_path`/`head_content`/`root`, `reconcile.patch` (para
+- Consumes: `core.state.*`, `core.git.rel_path`/`head_content`/`root`, `reconcile.patch` (for
   `notify_changed`).
-- Produces (todas serializables — reciben/devuelven string JSON o primitivos):
-  - `rpc.list(core, filter_json?)` → `string` (JSON array). `filter` opcional:
-    `{ author?, path?, resolved?, answered? }`. `answered` filtra por tener/no tener replies.
-  - `rpc.get(core, id)` → `string` (JSON del comentario + `replies`), o `"null"`.
-  - `rpc.context(core, id)` → `string` (JSON `{ comment, lines }` con las líneas de código que abarca,
-    leídas del HEAD o del disco), o `"null"`.
-  - `rpc.add(core, json_or_table)` → `string` (id, o `""`). `author` default `"agent"`.
-  - `rpc.reply(core, parent_id, text)` → `string` (id de la respuesta, o `""` si el padre no existe).
+- Produces (all serializable — they receive/return JSON strings or primitives):
+  - `rpc.list(core, filter_json?)` → `string` (JSON array). Optional `filter`:
+    `{ author?, path?, resolved?, answered? }`. `answered` filters by having/not having replies.
+  - `rpc.get(core, id)` → `string` (JSON of the comment + `replies`), or `"null"`.
+  - `rpc.context(core, id)` → `string` (JSON `{ comment, lines }` with the code lines it spans,
+    read from HEAD or from disk), or `"null"`.
+  - `rpc.add(core, json_or_table)` → `string` (id, or `""`). `author` defaults to `"agent"`.
+  - `rpc.reply(core, parent_id, text)` → `string` (id of the reply, or `""` if the parent does not exist).
   - `rpc.resolve(core, id)` / `rpc.unresolve(core, id)` → `boolean`.
   - `rpc.update(core, id, text)` → `boolean`.
   - `rpc.delete(core, id)` → `boolean`.
-  - `rpc.clean_resolved(core, path?)` → `number` (cuántos borró).
-  - `rpc.is_modified(core, path)` → `boolean` (¿hay un buffer de ese path con cambios sin guardar?).
-  - `rpc.notify_changed(core, path)` → `boolean` (fuerza `reconcile.patch` del buffer de ese path si
-    está abierto; `false` si no está abierto o hubo conflicto).
+  - `rpc.clean_resolved(core, path?)` → `number` (how many it deleted).
+  - `rpc.is_modified(core, path)` → `boolean` (is there a buffer of that path with unsaved changes?).
+  - `rpc.notify_changed(core, path)` → `boolean` (forces `reconcile.patch` of that path's buffer if
+    it is open; `false` if it is not open or there was a conflict).
 
-- [ ] **Step 1: Test que falla — `tests/agent/rpc_spec.lua`**
+- [ ] **Step 1: Failing test — `tests/agent/rpc_spec.lua`**
 
 ```lua
 local store = require("review.core.store")
@@ -700,20 +700,20 @@ describe("features.agent.rpc", function()
     state._reset(); events._reset()
   end)
 
-  it("list() sin comentarios devuelve []", function()
+  it("list() without comments returns []", function()
     assert.are.equal("[]", rpc.list(core))
   end)
 
-  it("list() excluye _extmark_id", function()
+  it("list() excludes _extmark_id", function()
     local c = state.add({ path = "a.ts", lnum = 1, text = "x" }); c._extmark_id = 7
     local d = vim.json.decode(rpc.list(core))
     assert.is_nil(d[1]._extmark_id)
   end)
 
-  it("list(filter) filtra por author y por answered", function()
-    local p = state.add({ path = "a.ts", lnum = 1, text = "mío", author = "user" })
-    state.add({ path = "a.ts", lnum = 1, text = "resp", author = "agent", reply_to = p.id })
-    state.add({ path = "a.ts", lnum = 2, text = "sin resp", author = "user" })
+  it("list(filter) filters by author and by answered", function()
+    local p = state.add({ path = "a.ts", lnum = 1, text = "mine", author = "user" })
+    state.add({ path = "a.ts", lnum = 1, text = "reply", author = "agent", reply_to = p.id })
+    state.add({ path = "a.ts", lnum = 2, text = "no reply", author = "user" })
 
     local mine = vim.json.decode(rpc.list(core, vim.json.encode({ author = "user" })))
     assert.are.equal(2, #mine)
@@ -724,19 +724,19 @@ describe("features.agent.rpc", function()
     assert.are.equal(1, #unanswered)
   end)
 
-  it("add() valida y devuelve id; author default agent", function()
-    local id = rpc.add(core, { path = "b.ts", lnum = 3, text = "desde agente" })
+  it("add() validates and returns an id; author defaults to agent", function()
+    local id = rpc.add(core, { path = "b.ts", lnum = 3, text = "from agent" })
     assert.is_not.equal("", id)
     assert.are.equal("agent", state.by_id(id).author)
   end)
 
-  it("add() con JSON inválido devuelve ''", function()
-    assert.are.equal("", rpc.add(core, "{ roto"))
+  it("add() with invalid JSON returns ''", function()
+    assert.are.equal("", rpc.add(core, "{ broken"))
   end)
 
-  it("reply() liga al padre y hereda su path/lnum", function()
-    local p = state.add({ path = "a.ts", lnum = 5, text = "duda" })
-    local rid = rpc.reply(core, p.id, "porque X")
+  it("reply() links to the parent and inherits its path/lnum", function()
+    local p = state.add({ path = "a.ts", lnum = 5, text = "question" })
+    local rid = rpc.reply(core, p.id, "because X")
     local r = state.by_id(rid)
     assert.are.equal(p.id, r.reply_to)
     assert.are.equal("a.ts", r.path)
@@ -744,15 +744,15 @@ describe("features.agent.rpc", function()
     assert.are.equal("agent", r.author)
   end)
 
-  it("reply() con padre inexistente devuelve ''", function()
-    assert.are.equal("", rpc.reply(core, "no-existe", "x"))
+  it("reply() with a nonexistent parent returns ''", function()
+    assert.are.equal("", rpc.reply(core, "does-not-exist", "x"))
   end)
 
-  it("get() devuelve el comentario con sus replies", function()
-    local p = state.add({ path = "a.ts", lnum = 1, text = "duda" })
-    rpc.reply(core, p.id, "resp")
+  it("get() returns the comment with its replies", function()
+    local p = state.add({ path = "a.ts", lnum = 1, text = "question" })
+    rpc.reply(core, p.id, "reply")
     local g = vim.json.decode(rpc.get(core, p.id))
-    assert.are.equal("duda", g.text)
+    assert.are.equal("question", g.text)
     assert.are.equal(1, #g.replies)
   end)
 
@@ -760,19 +760,19 @@ describe("features.agent.rpc", function()
     local c = state.add({ path = "a.ts", lnum = 1, text = "x" })
     assert.is_true(rpc.resolve(core, c.id));   assert.is_true(state.by_id(c.id).resolved)
     assert.is_true(rpc.unresolve(core, c.id)); assert.is_false(state.by_id(c.id).resolved)
-    assert.is_true(rpc.update(core, c.id, "nuevo texto")); assert.are.equal("nuevo texto", state.by_id(c.id).text)
+    assert.is_true(rpc.update(core, c.id, "new text")); assert.are.equal("new text", state.by_id(c.id).text)
     assert.is_true(rpc.delete(core, c.id));    assert.is_nil(state.by_id(c.id))
   end)
 
-  it("clean_resolved borra los resueltos y devuelve el conteo", function()
-    state.add({ path = "a.ts", lnum = 1, text = "abierto" })
-    local r = state.add({ path = "a.ts", lnum = 2, text = "cerrado", resolved = true })
+  it("clean_resolved deletes the resolved ones and returns the count", function()
+    state.add({ path = "a.ts", lnum = 1, text = "open" })
+    local r = state.add({ path = "a.ts", lnum = 2, text = "closed", resolved = true })
     assert.are.equal(1, rpc.clean_resolved(core))
     assert.is_nil(state.by_id(r.id))
     assert.are.equal(1, #state.all())
   end)
 
-  it("is_modified refleja el estado del buffer", function()
+  it("is_modified reflects the buffer state", function()
     local path = root .. "/m.ts"
     vim.fn.writefile({ "a" }, path)
     local b = vim.fn.bufadd(path); vim.fn.bufload(b); vim.bo[b].modified = false
@@ -783,12 +783,12 @@ describe("features.agent.rpc", function()
 end)
 ```
 
-- [ ] **Step 2: Correr y ver fallar**
+- [ ] **Step 2: Run and watch it fail**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/agent/rpc_spec.lua" -c "qa"`
 Expected: FAIL ("module 'review.features.agent.rpc' not found").
 
-- [ ] **Step 3: Implementar `lua/review/features/agent/rpc.lua`**
+- [ ] **Step 3: Implement `lua/review/features/agent/rpc.lua`**
 
 ```lua
 local reconcile = require("review.features.agent.reconcile")
@@ -812,7 +812,7 @@ local function decode_maybe(x)
   return x
 end
 
---- Busca el bufnr abierto para un relpath (o nil).
+--- Finds the open bufnr for a relpath (or nil).
 local function buf_for_path(core, relpath)
   local root = core.git.root()
   if not root then return nil end
@@ -856,7 +856,7 @@ function M.context(core, id)
   local c = core.state.by_id(id)
   if not c then return "null" end
   local lines = {}
-  -- Preferimos el contenido del buffer abierto; si no, disco; si no, HEAD.
+  -- We prefer the content of the open buffer; otherwise disk; otherwise HEAD.
   local b = buf_for_path(core, c.path)
   if b then
     lines = vim.api.nvim_buf_get_lines(b, (c.lnum or 1) - 1, (c.end_lnum or c.lnum), false)
@@ -943,7 +943,7 @@ end
 return M
 ```
 
-- [ ] **Step 4: Correr y ver pasar**
+- [ ] **Step 4: Run and watch it pass**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/agent/rpc_spec.lua" -c "qa"`
 Expected: PASS (11).
@@ -952,24 +952,24 @@ Expected: PASS (11).
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(agent/rpc): API serializable completa (list/get/context/add/reply/resolve/update/delete/clean/is_modified/notify_changed)"
+git commit -q -m "feat(agent/rpc): complete serializable API (list/get/context/add/reply/resolve/update/delete/clean/is_modified/notify_changed)"
 ```
 
 ---
 
-### Task 6: `agent/init.lua` — `_G.ReviewAgent`, `opts.enabled`, cablear watcher
+### Task 6: `agent/init.lua` — `_G.ReviewAgent`, `opts.enabled`, wire up the watcher
 
 **Files:**
 - Create: `lua/review/features/agent/init.lua`, `tests/agent/init_spec.lua`
 
 **Interfaces:**
 - Consumes: `rpc` (Task 5), `watch` (Task 4), `core.registry.register`.
-- Produces: `M.setup(core, opts)` — si `opts.enabled` es truthy: expone `_G.ReviewAgent` (todas las
-  funciones de `rpc` cerrando sobre `core`, más `servername()`), y crea autocmds para adjuntar el
-  watcher a los buffers de archivos del repo (`BufReadPost`/`BufWinEnter`) y liberarlo en
-  `BufWipeout`/`BufDelete`. Si `opts.enabled` es falsy → no toca `_G` ni crea watchers (inerte).
+- Produces: `M.setup(core, opts)` — if `opts.enabled` is truthy: exposes `_G.ReviewAgent` (all the
+  `rpc` functions closing over `core`, plus `servername()`), and creates autocmds to attach the
+  watcher to the repo's file buffers (`BufReadPost`/`BufWinEnter`) and release it on
+  `BufWipeout`/`BufDelete`. If `opts.enabled` is falsy → it does not touch `_G` or create watchers (inert).
 
-- [ ] **Step 1: Test que falla — `tests/agent/init_spec.lua`**
+- [ ] **Step 1: Failing test — `tests/agent/init_spec.lua`**
 
 ```lua
 local store = require("review.core.store")
@@ -989,30 +989,30 @@ describe("features.agent.setup", function()
     _G.ReviewAgent = nil
   end)
 
-  it("no expone _G.ReviewAgent si enabled no es true", function()
+  it("does not expose _G.ReviewAgent if enabled is not true", function()
     agent.setup(core, {})
     assert.is_nil(_G.ReviewAgent)
   end)
 
-  it("expone la API completa cuando enabled=true", function()
+  it("exposes the full API when enabled=true", function()
     agent.setup(core, { enabled = true })
     assert.is_table(_G.ReviewAgent)
     for _, fn in ipairs({ "list", "get", "context", "add", "reply", "resolve",
                           "unresolve", "update", "delete", "clean_resolved",
                           "is_modified", "notify_changed", "servername" }) do
-      assert.is_function(_G.ReviewAgent[fn], fn .. " debe ser función")
+      assert.is_function(_G.ReviewAgent[fn], fn .. " must be a function")
     end
     local id = _G.ReviewAgent.add({ path = "x.ts", lnum = 1, text = "t" })
     assert.is_truthy(id)
     assert.are.equal(1, #vim.json.decode(_G.ReviewAgent.list()))
   end)
 
-  it("servername() devuelve v:servername", function()
+  it("servername() returns v:servername", function()
     agent.setup(core, { enabled = true })
     assert.are.equal(vim.v.servername, _G.ReviewAgent.servername())
   end)
 
-  it("se auto-registra en core.registry", function()
+  it("self-registers in core.registry", function()
     local feats = require("review.core").registry.features()
     assert.is_not_nil(feats.agent)
     assert.are.equal(agent.setup, feats.agent.setup)
@@ -1020,12 +1020,12 @@ describe("features.agent.setup", function()
 end)
 ```
 
-- [ ] **Step 2: Correr y ver fallar**
+- [ ] **Step 2: Run and watch it fail**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/agent/init_spec.lua" -c "qa"`
 Expected: FAIL ("module 'review.features.agent' not found").
 
-- [ ] **Step 3: Implementar `lua/review/features/agent/init.lua`**
+- [ ] **Step 3: Implement `lua/review/features/agent/init.lua`**
 
 ```lua
 local rpc = require("review.features.agent.rpc")
@@ -1062,7 +1062,7 @@ function M.setup(core, opts)
     group = group,
     callback = function(a) watch.detach(a.buf) end,
   })
-  -- Adjuntar a los buffers ya abiertos al habilitar.
+  -- Attach to the buffers that are already open when enabling.
   for _, b in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_loaded(b) then watch.attach(core, b) end
   end
@@ -1080,76 +1080,76 @@ require("review.core").registry.register({ name = "agent", setup = M.setup })
 return M
 ```
 
-- [ ] **Step 4: Correr y ver pasar**
+- [ ] **Step 4: Run and watch it pass**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/agent/init_spec.lua" -c "qa"`
 Expected: PASS (4).
 
-- [ ] **Step 5: `:ReviewReload` manual como fallback** (`lua/review/features/agent/init.lua`, dentro de `M.setup`, antes del `vim.schedule`)
+- [ ] **Step 5: Manual `:ReviewReload` as a fallback** (`lua/review/features/agent/init.lua`, inside `M.setup`, before the `vim.schedule`)
 
 ```lua
-  -- Fallback manual para el único caso que auto no resuelve (buffer con cambios
-  -- sin guardar en conflicto con disco): fuerza el patch del buffer actual.
+  -- Manual fallback for the only case that auto does not solve (buffer with unsaved
+  -- changes in conflict with disk): forces the patch of the current buffer.
   vim.api.nvim_create_user_command("ReviewReload", function()
     local b = vim.api.nvim_get_current_buf()
-    -- forzamos aunque estuviera modified: el humano lo pidió explícitamente.
+    -- we force it even if it was modified: the human asked for it explicitly.
     if vim.bo[b].modified then vim.bo[b].modified = false end
     require("review.features.agent.reconcile").patch(core, b)
   end, {})
 ```
 
-- [ ] **Step 6: Suite completa del plugin (no romper nada)**
+- [ ] **Step 6: Full plugin suite (do not break anything)**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedDirectory tests/ {minimal_init='tests/minimal_init.lua'}" -c "qa"`
-Expected: PASS (todos los slices verde).
+Expected: PASS (all slices green).
 
 - [ ] **Step 7: Commit**
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(agent): _G.ReviewAgent + watcher cableado + :ReviewReload, deshabilitado por defecto"
+git commit -q -m "feat(agent): _G.ReviewAgent + wired watcher + :ReviewReload, disabled by default"
 ```
 
 ---
 
-### Task 7: `comments` render/gutter/peek — distinguir autoría, hilos y `stale` (UI)
+### Task 7: `comments` render/gutter/peek — distinguish authorship, threads and `stale` (UI)
 
 **Files:**
-- Modify: `lua/review/features/comments/render.lua` (badge/hl por autor + marca stale)
-- Modify: `lua/review/features/comments/gutter.lua` (color/ícono por autor + "respondido")
-- Modify: `lua/review/features/comments/mode.lua` (peek muestra el hilo completo)
-- Modify: `lua/review/features/views/init.lua` (definir highlights nuevos con `default=true`)
+- Modify: `lua/review/features/comments/render.lua` (badge/hl by author + stale mark)
+- Modify: `lua/review/features/comments/gutter.lua` (color/icon by author + "answered")
+- Modify: `lua/review/features/comments/mode.lua` (peek shows the full thread)
+- Modify: `lua/review/features/views/init.lua` (define new highlights with `default=true`)
 - Modify: `docs/highlights.md`
 
-Esta capa es visual (extmarks reales / floats), se verifica manualmente como en `03-views.md`. La
-lógica ya está testeada (autoría en `state`, hilos en `state.thread`, stale en `render.reconcile`).
+This layer is visual (real extmarks / floats), verified manually as in `03-views.md`. The
+logic is already tested (authorship in `state`, threads in `state.thread`, stale in `render.reconcile`).
 
 **Interfaces:**
 - Consumes: `core.state.for_path`, `core.state.replies`, `core.state.thread`.
-- Produces: pintado que distingue `author == "user"` de `author ~= "user"` (agente), marca visual de
-  `stale`, y peek que renderiza el hilo (comentario + respuestas debajo).
+- Produces: painting that distinguishes `author == "user"` from `author ~= "user"` (agent), a visual mark for
+  `stale`, and a peek that renders the thread (comment + replies below).
 
-- [ ] **Step 1: Definir highlights nuevos** (`lua/review/features/views/init.lua`, en la función que
-  define los grupos con `default=true`, junto a los `ReviewComment*` existentes)
+- [ ] **Step 1: Define new highlights** (`lua/review/features/views/init.lua`, in the function that
+  defines the groups with `default=true`, next to the existing `ReviewComment*` ones)
 
 ```lua
-  set("ReviewCommentAgent",   { bg = "#3a2c52" })  -- fondo de comentario del agente (violeta)
-  set("ReviewCommentStale",   { bg = "#4a3a1d" })  -- comentario con anclaje incierto (ámbar)
-  set("ReviewCommentSignAgent", { fg = "#c6a0f6" }) -- corchete del agente en el gutter
+  set("ReviewCommentAgent",   { bg = "#3a2c52" })  -- background of the agent's comment (violet)
+  set("ReviewCommentStale",   { bg = "#4a3a1d" })  -- comment with uncertain anchoring (amber)
+  set("ReviewCommentSignAgent", { fg = "#c6a0f6" }) -- the agent's bracket in the gutter
 ```
 
-(usar el mismo helper `set`/`nvim_set_hl(0, name, { ..., default = true })` que ya usa el archivo).
+(use the same `set`/`nvim_set_hl(0, name, { ..., default = true })` helper that the file already uses).
 
-- [ ] **Step 2: `render.lua` — badge/hl por autor + marca stale**
+- [ ] **Step 2: `render.lua` — badge/hl by author + stale mark**
 
-En el loop de `M.render`, al elegir el highlight de fondo y el prefijo del badge, contemplar autor y
-stale:
+In the `M.render` loop, when choosing the background highlight and the badge prefix, take author and
+stale into account:
 
 ```lua
     local is_agent = c.author and c.author ~= "user"
     local icon = is_agent and "🤖" or "💬"
     if c.stale then icon = "⚠️ " .. icon end
-    -- hl de fondo: resuelto > stale > agente > normal (alternado)
+    -- background hl: resolved > stale > agent > normal (alternating)
     local line_hl
     if c.resolved then
       line_hl = "ReviewCommentLineResolved"
@@ -1162,49 +1162,49 @@ stale:
     end
 ```
 
-(Adaptar a los nombres reales de las variables del loop actual — `idx`, badge, etc. Mantener el
-badge de eol pero con `icon` en vez del `💬` fijo, y agregar un sufijo si tiene respuestas:
+(Adapt to the real variable names of the current loop — `idx`, badge, etc. Keep the
+eol badge but with `icon` instead of the fixed `💬`, and add a suffix if it has replies:
 `#core.state.replies(c.id) > 0` → ` ↩N`).
 
-- [ ] **Step 3: `gutter.lua` — color del corchete por autor + marca "respondido"**
+- [ ] **Step 3: `gutter.lua` — bracket color by author + "answered" mark**
 
-En el cálculo del `statuscolumn`, si el comentario es del agente usar `ReviewCommentSignAgent` en vez
-del color cíclico; si tiene respuestas, agregar un pequeño marcador (`↩`) o cambiar el carácter del
-tope del corchete. Respetar `render.hidden` como ya lo hace.
+In the `statuscolumn` computation, if the comment is the agent's use `ReviewCommentSignAgent` instead of
+the cyclic color; if it has replies, add a small marker (`↩`) or change the character of the
+top of the bracket. Respect `render.hidden` as it already does.
 
-- [ ] **Step 4: `mode.lua` (peek) — renderizar el hilo completo**
+- [ ] **Step 4: `mode.lua` (peek) — render the full thread**
 
-En `M.peek_here`/el builder de las `virt_lines` del peek, en vez de mostrar solo `c.text`, construir
-las líneas con `core.state.thread(c.id)`: el comentario padre y, debajo, cada respuesta con sangría y
-su autor (`↳ 🤖 agent: ...`). Mantener el diseño fijo (virt_lines, no flotante) de la decisión D8.
+In `M.peek_here`/the builder of the peek's `virt_lines`, instead of showing only `c.text`, build
+the lines with `core.state.thread(c.id)`: the parent comment and, below, each reply indented with
+its author (`↳ 🤖 agent: ...`). Keep the fixed design (virt_lines, not floating) from decision D8.
 
-- [ ] **Step 5: Verificación manual**
+- [ ] **Step 5: Manual verification**
 
-1. `nvim` sobre un archivo del repo con cambios. Crear un comentario tuyo (`<leader>rc`).
-2. Con el agente habilitado (Task 8) o desde otra terminal:
-   `nvim --server "$NVIM_LISTEN_ADDRESS" --remote-expr 'luaeval("ReviewAgent.reply(_A, \"porque el tipo puede ser null\")", "<id>")'`
-   (obtené el `<id>` con `ReviewAgent.list()`).
-3. Confirmar en el buffer: el comentario del agente se pinta con fondo violeta + 🤖; tu comentario
-   muestra el sufijo `↩1` (tiene 1 respuesta); el peek (`<leader>rp`) muestra el hilo (tu comentario
-   arriba, la respuesta del agente sangrada debajo).
-4. Simular re-anclaje incierto: editar en disco (fuera de nvim) la línea comentada por algo muy
-   distinto; al reconciliar, el comentario debe quedar marcado `⚠️` con fondo ámbar (`stale`).
-5. Confirmar que ocultar/mostrar (`<leader>rh`) sigue funcionando y que el gutter no se filtra a
-   neo-tree (regresión B del D13).
+1. `nvim` on a repo file with changes. Create a comment of your own (`<leader>rc`).
+2. With the agent enabled (Task 8) or from another terminal:
+   `nvim --server "$NVIM_LISTEN_ADDRESS" --remote-expr 'luaeval("ReviewAgent.reply(_A, \"because the type can be null\")", "<id>")'`
+   (get the `<id>` with `ReviewAgent.list()`).
+3. Confirm in the buffer: the agent's comment is painted with a violet background + 🤖; your comment
+   shows the suffix `↩1` (it has 1 reply); the peek (`<leader>rp`) shows the thread (your comment
+   on top, the agent's reply indented below).
+4. Simulate uncertain re-anchoring: on disk (outside nvim) edit the commented line into something very
+   different; on reconcile, the comment must be marked `⚠️` with an amber background (`stale`).
+5. Confirm that hide/show (`<leader>rh`) still works and that the gutter does not leak into
+   neo-tree (regression B of D13).
 
-- [ ] **Step 6: Actualizar `docs/highlights.md`** con los 3 grupos nuevos (`ReviewCommentAgent`,
-  `ReviewCommentStale`, `ReviewCommentSignAgent`) y su default.
+- [ ] **Step 6: Update `docs/highlights.md`** with the 3 new groups (`ReviewCommentAgent`,
+  `ReviewCommentStale`, `ReviewCommentSignAgent`) and their defaults.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(comments): distinguir autoría del agente, hilos en el peek y marca stale (UI)"
+git commit -q -m "feat(comments): distinguish agent authorship, threads in the peek and stale mark (UI)"
 ```
 
 ---
 
-### Task 8: `comments` lista — filtro por autor y por respondido/sin responder
+### Task 8: `comments` list — filter by author and by answered/unanswered
 
 **Files:**
 - Modify: `lua/review/features/comments/commands.lua`
@@ -1212,18 +1212,18 @@ git commit -q -m "feat(comments): distinguir autoría del agente, hilos en el pe
 
 **Interfaces:**
 - Consumes: `core.state.all`, `core.state.replies`.
-- Produces: el filtro `f` de la quickfix (`:Rl`/`:Rlf`) cicla por más estados; se agrega un helper
-  puro `commands._filter(list, replies_fn, mode)` testeable que devuelve la sublista según el modo:
+- Produces: the quickfix's `f` filter (`:Rl`/`:Rlf`) cycles through more states; a testable
+  pure helper `commands._filter(list, replies_fn, mode)` is added that returns the sublist according to the mode:
   `all | open | resolved | mine | agent | answered | unanswered`.
 
-- [ ] **Step 1: Test que falla — agregar a `tests/comments/commands_spec.lua`**
+- [ ] **Step 1: Failing test — add to `tests/comments/commands_spec.lua`**
 
 ```lua
-  it("_filter selecciona por modo (mine/agent/answered/unanswered)", function()
+  it("_filter selects by mode (mine/agent/answered/unanswered)", function()
     local p = { id = "p", author = "user", resolved = false }
     local a = { id = "a", author = "agent", resolved = false }
     local list = { p, a }
-    local replies_fn = function(id) return id == "p" and { {} } or {} end  -- p tiene 1 respuesta
+    local replies_fn = function(id) return id == "p" and { {} } or {} end  -- p has 1 reply
 
     local mine = commands._filter(list, replies_fn, "mine")
     assert.are.equal(1, #mine); assert.are.equal("p", mine[1].id)
@@ -1241,16 +1241,16 @@ git commit -q -m "feat(comments): distinguir autoría del agente, hilos en el pe
   end)
 ```
 
-- [ ] **Step 2: Correr y ver fallar**
+- [ ] **Step 2: Run and watch it fail**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/comments/commands_spec.lua" -c "qa"`
 Expected: FAIL (`attempt to call field '_filter' (a nil value)`).
 
-- [ ] **Step 3: Implementar `commands._filter`** (`lua/review/features/comments/commands.lua`, antes de `return M`)
+- [ ] **Step 3: Implement `commands._filter`** (`lua/review/features/comments/commands.lua`, before `return M`)
 
 ```lua
---- Filtra una lista de comentarios según `mode`. `replies_fn(id)` devuelve las
---- respuestas de un comentario (para answered/unanswered). Función pura/testeable.
+--- Filters a list of comments according to `mode`. `replies_fn(id)` returns the
+--- replies of a comment (for answered/unanswered). Pure/testable function.
 function M._filter(list, replies_fn, mode)
   local function answered(c) return #(replies_fn(c.id) or {}) > 0 end
   local pred = {
@@ -1269,154 +1269,154 @@ function M._filter(list, replies_fn, mode)
 end
 ```
 
-- [ ] **Step 4: Cablear el ciclo de `f` en la quickfix** para pasar por los nuevos modos
-  (`all → open → resolved → mine → agent → answered → unanswered → all`), usando
-  `M._filter(core.state.all(), function(id) return core.state.replies(id) end, mode)` y actualizando
-  el hint de la winbar. (Sin test automatizado: es interacción de quickfix; el helper puro ya está
-  cubierto en Step 1.)
+- [ ] **Step 4: Wire the `f` cycle in the quickfix** to go through the new modes
+  (`all → open → resolved → mine → agent → answered → unanswered → all`), using
+  `M._filter(core.state.all(), function(id) return core.state.replies(id) end, mode)` and updating
+  the winbar hint. (No automated test: it is quickfix interaction; the pure helper is already
+  covered in Step 1.)
 
-- [ ] **Step 5: Correr y ver pasar**
+- [ ] **Step 5: Run and watch it pass**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/comments/commands_spec.lua" -c "qa"`
-Expected: PASS (previos + 1).
+Expected: PASS (previous + 1).
 
 - [ ] **Step 6: Commit**
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(comments): filtro de lista por autor y por respondido/sin responder"
+git commit -q -m "feat(comments): list filter by author and by answered/unanswered"
 ```
 
 ---
 
-### Task 9: Documentar el protocolo del agente + verificación end-to-end
+### Task 9: Document the agent protocol + end-to-end verification
 
 **Files:**
-- Modify: `docs/features.md` (sección `agent`: pasar de "PENDIENTE" a implementado)
-- Modify: `docs/commands.md` (agregar `:ReviewReload` y el nuevo ciclo de filtros)
-- Modify: `docs/decisions.md` (D21 → implementado; agregar D22 reconciliación AUTO)
-- Create/rescribir: sección "Protocolo del agente" en este archivo (abajo)
+- Modify: `docs/features.md` (`agent` section: move from "PENDING" to implemented)
+- Modify: `docs/commands.md` (add `:ReviewReload` and the new filter cycle)
+- Modify: `docs/decisions.md` (D21 → implemented; add D22 AUTO reconciliation)
+- Create/rewrite: "Agent protocol" section in this file (below)
 
-- [ ] **Step 1: Verificación end-to-end del RPC** (con Neovim escuchando)
+- [ ] **Step 1: End-to-end verification of the RPC** (with Neovim listening)
 
 ```bash
 cd ~/Dev/nvim/review.nvim
 nvim --headless --listen /tmp/review-nvim.sock \
   -c "lua require('review').setup({ features = { agent = { enabled = true } } })" &
 sleep 1
-# agregar un comentario desde afuera
+# add a comment from the outside
 nvim --server /tmp/review-nvim.sock --remote-expr \
-  'luaeval("ReviewAgent.add(_A)", "{\"path\":\"foo.ts\",\"lnum\":1,\"text\":\"probando\"}")'
-# listar
+  'luaeval("ReviewAgent.add(_A)", "{\"path\":\"foo.ts\",\"lnum\":1,\"text\":\"testing\"}")'
+# list
 nvim --server /tmp/review-nvim.sock --remote-expr 'luaeval("ReviewAgent.list()")'
 kill %1
 ```
 
-Expected: el primer `--remote-expr` imprime un id; el segundo, un JSON array con el comentario.
+Expected: the first `--remote-expr` prints an id; the second, a JSON array with the comment.
 
-- [ ] **Step 2: Actualizar docs** (features/commands/decisions) reflejando: reconciliación AUTO por
-  patch-diff, watcher, threading/autoría/stale, `:ReviewReload`, API `_G.ReviewAgent`.
+- [ ] **Step 2: Update docs** (features/commands/decisions) reflecting: AUTO reconciliation by
+  diff patch, watcher, threading/authorship/stale, `:ReviewReload`, `_G.ReviewAgent` API.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "docs(agent): protocolo RPC, reconciliación AUTO y actualización de features/commands/decisions"
+git commit -q -m "docs(agent): RPC protocol, AUTO reconciliation and update of features/commands/decisions"
 ```
 
 ---
 
-## Protocolo del agente
+## Agent protocol
 
-**No hay servidor propio.** El "servidor" es el mismo proceso `nvim` que el humano tiene abierto (o
-uno headless con `--listen`). El agente usa el binario `nvim` como cliente RPC contra ese socket. El
-socket está en `v:servername` (`:echo v:servername`) o en el `--listen <path>` con que se arrancó.
+**There is no custom server.** The "server" is the same `nvim` process that the human has open (or
+a headless one with `--listen`). The agent uses the `nvim` binary as an RPC client against that socket. The
+socket is in `v:servername` (`:echo v:servername`) or in the `--listen <path>` it was started with.
 
-### Modelo mental
+### Mental model
 
-- **El agente escribe CÓDIGO en disco con sus propias herramientas** (Edit/Write/etc.), FUERA de
-  nvim. review.nvim NO edita código.
-- **Los comentarios pasan por nvim** vía `_G.ReviewAgent` (RPC), que opera sobre `core.state` (única
-  fuente de verdad de comentarios).
-- Cuando el agente cambia un archivo en disco, el **watcher** (`vim.uv.fs_event`) lo detecta y
-  `reconcile.patch` aplica el cambio al buffer como **patch mínimo por diff** — los extmarks (y por
-  lo tanto los comentarios) **se re-anclan solos por gravity**, sin `:edit!`. Si el buffer tiene
-  cambios sin guardar del humano, NO se pisa: se reporta conflicto y queda `:ReviewReload` manual.
-- Antes de editar un archivo, el agente puede consultar `ReviewAgent.is_modified(path)` para no
-  chocar con algo que el humano está editando sin guardar. Tras editar, puede llamar
-  `ReviewAgent.notify_changed(path)` para forzar el patch de inmediato (además del watcher).
+- **The agent writes code to disk with its own tools** (Edit/Write/etc.), outside
+  nvim. review.nvim does not edit code.
+- **Comments go through nvim** via `_G.ReviewAgent` (RPC), which operates on `core.state` (the single
+  source of truth for comments).
+- When the agent changes a file on disk, the **watcher** (`vim.uv.fs_event`) detects it and
+  `reconcile.patch` applies the change to the buffer as a **minimal diff patch** — the extmarks (and
+  therefore the comments) **re-anchor themselves by gravity**, without `:edit!`. If the buffer has
+  unsaved changes from the human, it is **not** overwritten: a conflict is reported and a manual `:ReviewReload` remains.
+- Before editing a file, the agent can query `ReviewAgent.is_modified(path)` so as not to
+  collide with something the human is editing without saving. After editing, it can call
+  `ReviewAgent.notify_changed(path)` to force the patch right away (in addition to the watcher).
 
-### Habilitar (deshabilitado por defecto)
+### Enable (disabled by default)
 
 ```lua
 require("review").setup({ features = { agent = { enabled = true } } })
 ```
 
-### API `_G.ReviewAgent`
+### `_G.ReviewAgent` API
 
-| Función | Firma | Devuelve |
+| Function | Signature | Returns |
 |---|---|---|
 | `list(filter?)` | `(string JSON filter?)` | `string` JSON array. filter: `{author?,path?,resolved?,answered?}` |
-| `get(id)` | `(string)` | `string` JSON del comentario + `replies`, o `"null"` |
-| `context(id)` | `(string)` | `string` JSON `{comment, lines}` (código que abarca) |
-| `add(c)` | `(table\|string JSON)` | `string` id, o `""` si inválido. `author` default `"agent"` |
-| `reply(parent_id, text)` | `(string, string)` | `string` id de la respuesta, o `""` |
+| `get(id)` | `(string)` | `string` JSON of the comment + `replies`, or `"null"` |
+| `context(id)` | `(string)` | `string` JSON `{comment, lines}` (the code it spans) |
+| `add(c)` | `(table\|string JSON)` | `string` id, or `""` if invalid. `author` defaults to `"agent"` |
+| `reply(parent_id, text)` | `(string, string)` | `string` id of the reply, or `""` |
 | `resolve(id)` / `unresolve(id)` | `(string)` | `boolean` |
 | `update(id, text)` | `(string, string)` | `boolean` |
 | `delete(id)` | `(string)` | `boolean` |
-| `clean_resolved(path?)` | `(string?)` | `number` (cuántos borró) |
-| `is_modified(path)` | `(string)` | `boolean` — buffer abierto con cambios sin guardar |
-| `notify_changed(path)` | `(string)` | `boolean` — forzó el patch de ese buffer |
-| `servername()` | `()` | `string` — el socket actual |
+| `clean_resolved(path?)` | `(string?)` | `number` (how many it deleted) |
+| `is_modified(path)` | `(string)` | `boolean` — open buffer with unsaved changes |
+| `notify_changed(path)` | `(string)` | `boolean` — it forced the patch of that buffer |
+| `servername()` | `()` | `string` — the current socket |
 
-### Ejemplos (`--remote-expr`, con `_A` para pasar argumentos sin escaping infernal)
+### Examples (`--remote-expr`, with `_A` to pass arguments without painful escaping)
 
 ```bash
-# listar solo los míos sin responder
+# list only mine that are unanswered
 nvim --server "$NVIM_LISTEN_ADDRESS" --remote-expr \
   'luaeval("ReviewAgent.list(_A)", "{\"author\":\"user\",\"answered\":false}")'
 
-# responder a un comentario del humano
+# reply to a comment from the human
 nvim --server "$NVIM_LISTEN_ADDRESS" --remote-expr \
-  'luaeval("ReviewAgent.reply(_A[1], _A[2])", ["18f2a90b-3c1a", "porque el tipo puede ser null"])'
+  'luaeval("ReviewAgent.reply(_A[1], _A[2])", ["18f2a90b-3c1a", "because the type can be null"])'
 
-# ver el código que abarca un comentario (para entender a qué se refiere)
+# see the code that a comment spans (to understand what it refers to)
 nvim --server "$NVIM_LISTEN_ADDRESS" --remote-expr 'luaeval("ReviewAgent.context(_A)", "18f2a90b-3c1a")'
 
-# tras editar en disco, forzar la recarga + re-anclaje
+# after editing on disk, force the reload + re-anchoring
 nvim --server "$NVIM_LISTEN_ADDRESS" --remote-expr 'luaeval("ReviewAgent.notify_changed(_A)", "src/foo.ts")'
 ```
 
-### Flujo típico
+### Typical flow
 
-1. El humano deja comentarios (dudas, pedidos). `:Rya` copia el markdown agent-ready.
-2. El agente lee (`list`/`get`/`context`), **edita el código en disco por su cuenta**, y por RPC
-   **responde ligado** (`reply`) con la justificación, opcionalmente `resolve`, y llama
-   `notify_changed(path)` de lo que tocó (o deja que el watcher lo detecte).
-3. Neovim recarga esos archivos con patch mínimo y re-ancla los comentarios; el humano ve en vivo el
-   badge 🤖/`↩` y el peek con el hilo. Acepta (queda resuelto) o reabre.
-4. `clean_resolved` para limpiar lo cerrado.
+1. The human leaves comments (questions, requests). `:Rya` copies the agent-ready markdown.
+2. The agent reads (`list`/`get`/`context`), **edits the code on disk on its own**, and over RPC
+   **replies linked** (`reply`) with the justification, optionally `resolve`, and calls
+   `notify_changed(path)` for what it touched (or lets the watcher detect it).
+3. Neovim reloads those files with a minimal patch and re-anchors the comments; the human sees live the
+   🤖/`↩` badge and the peek with the thread. They accept (it stays resolved) or reopen.
+4. `clean_resolved` to clean up what is closed.
 
 ## Self-Review
 
-- **Alineado con `docs/roadmap.md` §1:** transporte RPC nativo ✅ (T6/protocolo); separación
-  código-en-disco vs comentarios-por-nvim ✅ (T3 reconcile + protocolo); reconciliación AUTO por
-  patch mínimo por diff con re-anclaje por gravity ✅ (T3, validado empíricamente en roadmap §1.3);
-  detección por watcher `fs_event` + debounce + `notify_changed` ✅ (T4/T5); conflicto si `modified`
-  (no pisar) + `:ReviewReload` fallback ✅ (T3/T6); `anchor_text` + `stale` ✅ (T2); autoría +
-  threading (`reply_to`) + filtros ✅ (T1/T5/T8); API `_G.ReviewAgent` completa ✅ (T5/T6);
-  deshabilitada por defecto ✅ (T6). Orden de impl coincide con roadmap §1.7.
-- **Regla de no-dependencia entre features:** `agent` nunca hace `require("review.features.comments")`
-  ni viceversa; coordinan por el evento `buffer:reconciled` (T3). `agent` solo requiere `review.core`
-  y sus propios submódulos.
-- **Sin fugas:** watchers se cierran en `BufWipeout`/`BufDelete` (T4/T6), timers de debounce se cierran
-  siempre (T4).
-- **Edge-cases:** buffer `modified` → `conflict`, no pisa (T3); JSON inválido → `""`/`null` (T5);
-  padre inexistente en `reply` → `""` (T5); id inexistente → `false` (T5); feature inerte si no
-  `enabled` (T6); fuera del repo → no-op (T2/T3/T4).
-- **Placeholders:** el código de `state`, `reconcile`, `watch`, `rpc`, `agent/init` está completo y
-  ejecutable. Las Tasks 7 (UI render/gutter/peek) y 8 Step 4 (cableado del ciclo de quickfix) se
-  adaptan a las variables reales de los archivos existentes y se verifican manualmente, siguiendo el
-  criterio de `03-views.md` para capas visuales; su lógica pura sí tiene tests.
-- **Retro-compatibilidad:** campos nuevos opcionales; `state.persist` ya los conserva; JSON viejo
-  carga sin ellos (defaults nil/false).
+- **Aligned with `docs/roadmap.md` §1:** native RPC transport ✅ (T6/protocol); separation of
+  code-on-disk vs comments-through-nvim ✅ (T3 reconcile + protocol); AUTO reconciliation by
+  minimal diff patch with re-anchoring by gravity ✅ (T3, empirically validated in roadmap §1.3);
+  detection by `fs_event` watcher + debounce + `notify_changed` ✅ (T4/T5); conflict if `modified`
+  (do not overwrite) + `:ReviewReload` fallback ✅ (T3/T6); `anchor_text` + `stale` ✅ (T2); authorship +
+  threading (`reply_to`) + filters ✅ (T1/T5/T8); complete `_G.ReviewAgent` API ✅ (T5/T6);
+  disabled by default ✅ (T6). Implementation order matches roadmap §1.7.
+- **No-dependency rule between features:** `agent` never does `require("review.features.comments")`
+  nor vice versa; they coordinate through the `buffer:reconciled` event (T3). `agent` only requires `review.core`
+  and its own submodules.
+- **No leaks:** watchers are closed on `BufWipeout`/`BufDelete` (T4/T6), debounce timers are always
+  closed (T4).
+- **Edge cases:** `modified` buffer → `conflict`, does not overwrite (T3); invalid JSON → `""`/`null` (T5);
+  nonexistent parent in `reply` → `""` (T5); nonexistent id → `false` (T5); inert feature if not
+  `enabled` (T6); outside the repo → no-op (T2/T3/T4).
+- **Placeholders:** the code of `state`, `reconcile`, `watch`, `rpc`, `agent/init` is complete and
+  executable. Tasks 7 (UI render/gutter/peek) and 8 Step 4 (wiring of the quickfix cycle) are
+  adapted to the real variables of the existing files and verified manually, following the
+  criterion of `03-views.md` for visual layers; their pure logic does have tests.
+- **Backwards compatibility:** new fields are optional; `state.persist` already keeps them; old JSON
+  loads without them (defaults nil/false).

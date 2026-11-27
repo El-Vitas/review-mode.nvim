@@ -1,269 +1,269 @@
-# Próximos pasos (roadmap)
+# Next steps (roadmap)
 
-Plan de diseño para lo que sigue. No es implementación: es el "cómo lo haría y
-por qué", para discutir antes de codear.
+Design plan for what comes next. It is not implementation: it is the "how I would do it and
+why", to discuss before coding.
 
 ---
 
-## 1. Feature `agent` — puente bidireccional con el agente de IA
+## 1. `agent` feature — bidirectional bridge with the AI agent
 
-Objetivo: que un agente externo (Claude Code, etc.) pueda **leer, comentar,
-responder, resolver y limpiar** comentarios, y aplicar cambios de código **en
-vivo** sobre la misma instancia de Neovim que estás usando, sin choques.
+Goal: let an external agent (Claude Code, etc.) **read, comment,
+reply to, resolve and clean up** comments, and apply code changes **live**
+on the same Neovim instance you are using, without collisions.
 
-### 1.1 Transporte: RPC nativo de Neovim (sin sockets propios)
+### 1.1 Transport: native Neovim RPC (no custom sockets)
 
-- El "servidor" es el mismo proceso `nvim` (o uno headless con `--listen`).
-- El agente invoca funciones expuestas en `_G.ReviewAgent` vía
+- The "server" is the same `nvim` process (or a headless one with `--listen`).
+- The agent invokes functions exposed in `_G.ReviewAgent` via
   `nvim --server <sock> --remote-expr 'luaeval("ReviewAgent.xxx(_A)", <json>)'`.
-- Sin dependencias nuevas, sin HTTP. Deshabilitado por defecto (`opts.agent.enabled`),
-  porque expone superficie de escritura remota.
-- Todas las funciones son **serializables**: reciben/devuelven `string` (JSON) o
-  primitivos; nunca extmark ids ni tablas Lua crudas.
+- No new dependencies, no HTTP. Disabled by default (`opts.agent.enabled`),
+  because it exposes a remote write surface.
+- All functions are **serializable**: they receive/return `string` (JSON) or
+  primitives; never extmark ids or raw Lua tables.
 
-### 1.2 Separación de responsabilidades
+### 1.2 Separation of responsibilities
 
-Regla clara:
-- **El código lo escribe el agente LIBREMENTE en disco** (con sus propias
-  herramientas), FUERA de Neovim. review.nvim NO edita código y NO interviene en
-  cómo el agente modifica archivos.
-- **Los comentarios SÍ pasan por Neovim** (vía `_G.ReviewAgent`, sobre
-  `core.state`), que es la única fuente de verdad de los comentarios.
+Clear rule:
+- **The agent writes the code to disk FREELY** (with its own
+  tools), OUTSIDE Neovim. review.nvim does NOT edit code and does NOT interfere in
+  how the agent modifies files.
+- **The comments DO go through Neovim** (via `_G.ReviewAgent`, on top of
+  `core.state`), which is the single source of truth for comments.
 
-Entonces el problema NO es "editar código sin choques" (eso lo maneja el agente
-en disco), sino: **cuando el agente cambia un archivo en disco, Neovim tiene que
-enterarse, recargar el buffer y RE-ANCLAR los comentarios** (porque una edición
-en disco NO mueve los extmarks del buffer).
+So the problem is NOT "editing code without collisions" (the agent handles that
+on disk), but this: **when the agent changes a file on disk, Neovim has to
+find out, reload the buffer and RE-ANCHOR the comments** (because an edit
+on disk does NOT move the buffer's extmarks).
 
-### 1.3 Reconciliación: detectar cambios en disco y re-anclar comentarios
+### 1.3 Reconciliation: detect changes on disk and re-anchor comments
 
-**Decisión: AUTO** (recargar solo, sin que el usuario aprete nada) — es mil veces
-mejor UX. tuicr eligió manual (`:e`) porque re-fetchea diffs de PR remotos y no
-tiene extmarks; nosotros SÍ tenemos extmarks y control del buffer local, así que
-podemos hacer auto bien. El `:ReviewReload` manual queda como **fallback** para
-el único caso que auto no puede resolver solo (conflicto con cambios sin
-guardar). Para que auto quede sólido, hay que hacerlo así:
+**Decision: AUTO** (reload by itself, without the user pressing anything) — it is a thousand times
+better UX. tuicr chose manual (`:e`) because it re-fetches remote PR diffs and has
+no extmarks; we DO have extmarks and control of the local buffer, so
+we can do auto properly. The manual `:ReviewReload` stays as a **fallback** for
+the only case auto cannot resolve on its own (conflict with unsaved
+changes). To make auto solid, it has to be done like this:
 
-**Comentarios (estado):** no hay concurrencia real. Los `--remote-expr` corren
-serializados en el event loop principal → agente y usuario mutan `core.state`
-uno a la vez, sin data race. Cada mutación emite `comments:changed` y persiste.
+**Comments (state):** there is no real concurrency. `--remote-expr` calls run
+serialized in the main event loop → agent and user mutate `core.state`
+one at a time, with no data race. Each mutation emits `comments:changed` and persists.
 
-#### La técnica clave: aplicar el cambio de disco como PATCH mínimo al buffer
+#### The key technique: apply the disk change to the buffer as a minimal PATCH
 
-El error naïve es hacer `:edit!` (recarga total): eso **destruye todos los
-extmarks** → hay que re-anclar a mano y siempre queda frágil. En cambio:
+The naive mistake is doing `:edit!` (full reload): that **destroys all the
+extmarks** → they have to be re-anchored by hand and it is always fragile. Instead:
 
-1. Leer el contenido NUEVO del disco (sin tocar el buffer todavía).
-2. Diffear **líneas actuales del buffer (viejo) vs disco (nuevo)** con `vim.diff`
+1. Read the NEW content from disk (without touching the buffer yet).
+2. Diff the **current buffer lines (old) vs disk (new)** with `vim.diff`
    (`result_type = "indices"`) → hunks.
-3. Aplicar **solo esos hunks** al buffer con `nvim_buf_set_lines`/`set_text`
-   (de abajo hacia arriba para no invalidar índices).
+3. Apply **only those hunks** to the buffer with `nvim_buf_set_lines`/`set_text`
+   (from bottom to top so as not to invalidate indices).
 
-Resultado: los extmarks de las zonas SIN cambios **no se mueven**, y en las zonas
-con inserción/borrado **se corren solos** — exactamente como si el agente hubiera
-editado dentro del buffer.
+Result: the extmarks in the UNCHANGED zones **do not move**, and in the zones
+with insertion/deletion **they shift by themselves** — exactly as if the agent had
+edited inside the buffer.
 
-> **Validado empíricamente (nvim 0.12):** insertar líneas arriba de un extmark lo
-> corre hacia abajo (row 4→5); `set_text` sin cambiar la cantidad de líneas no
-> mueve un extmark posterior (2→2); borrar arriba lo sube (5→4). También
-> confirmado que `vim.uv.new_fs_event` y `vim.diff` existen. La técnica del patch
-> por diff re-ancla los comentarios sola. Es decir, **los comentarios se re-anclan automáticamente
-vía extmarks, sin remapeo manual**. Además:
-- El buffer queda `nomodified` (coincide con disco).
-- Las vistas de diff (inline/split) recomputan solas (comparan buffer vs HEAD).
-- Queda en el undo tree (puedes deshacer el cambio del agente con `u`).
+> **Empirically validated (nvim 0.12):** inserting lines above an extmark
+> moves it down (row 4→5); `set_text` without changing the number of lines does not
+> move a later extmark (2→2); deleting above moves it up (5→4). It was also
+> confirmed that `vim.uv.new_fs_event` and `vim.diff` exist. The patch-by-diff technique
+> re-anchors the comments by itself. That is, **the comments are re-anchored automatically
+via extmarks, without manual remapping**. In addition:
+- The buffer is left `nomodified` (it matches disk).
+- The diff views (inline/split) recompute by themselves (they compare buffer vs HEAD).
+- It lands in the undo tree (you can undo the agent's change with `u`).
 
-#### Detección (que sea confiable, no dependa de foco)
+#### Detection (make it reliable, not dependent on focus)
 
-`autoread` + `FileChangedShell` solo chequean en ciertos eventos (foco,
-CursorHold) → NO alcanza si el agente edita en background. Por eso:
-- **Watcher activo:** `vim.uv.fs_event` (o `fs_poll` de fallback) por cada buffer
-  de archivo del repo abierto. Al detectar cambio → correr el patch (arriba),
-  con **debounce** (~100–200 ms) para agrupar ráfagas de escritura del agente.
-- **Señal del agente:** `ReviewAgent.notify_changed(path)` fuerza el patch de ese
-  path de inmediato (camino explícito y barato). No obligatorio, pero acelera.
-- Cerrar el watcher en `BufWipeout`/`BufDelete` (sin fugas, como los otros caches).
+`autoread` + `FileChangedShell` only check on certain events (focus,
+CursorHold) → NOT enough if the agent edits in the background. Therefore:
+- **Active watcher:** `vim.uv.fs_event` (or `fs_poll` as a fallback) for each open
+  repo file buffer. On detecting a change → run the patch (above),
+  with **debounce** (~100–200 ms) to group the agent's write bursts.
+- **Agent signal:** `ReviewAgent.notify_changed(path)` forces the patch of that
+  path immediately (an explicit, cheap path). Not mandatory, but it speeds things up.
+- Close the watcher on `BufWipeout`/`BufDelete` (no leaks, like the other caches).
 
-#### Conflicto: buffer CON cambios sin guardar
+#### Conflict: buffer WITH unsaved changes
 
-Único caso donde auto NO debe actuar solo: tú editaste y no guardaste, y el
-agente tocó ese archivo en disco → divergieron. **Nunca pisar lo tuyo:**
-- Si el buffer está `modified` → NO aplicar el patch. Avisar (`vim.notify`) y
-  ofrecer: ver diff (buffer vs disco), aplicar de todos modos, o ignorar. Acá sí
-  entra el `:ReviewReload` manual.
-- **Prevención:** el agente consulta `ReviewAgent.is_modified(path)` ANTES de
-  editar; como escribe libre en disco, que evite (o avise sobre) los archivos que
-  estás editando sin guardar.
+The only case where auto must NOT act on its own: you edited and did not save, and the
+agent touched that file on disk → they diverged. **Never overwrite yours:**
+- If the buffer is `modified` → do NOT apply the patch. Warn (`vim.notify`) and
+  offer: view diff (buffer vs disk), apply anyway, or ignore. This is where the manual
+  `:ReviewReload` comes in.
+- **Prevention:** the agent queries `ReviewAgent.is_modified(path)` BEFORE
+  editing; since it writes freely to disk, it should avoid (or warn about) the files that
+  you are editing without saving.
 
-#### Comentarios que caen dentro de un cambio
+#### Comments that fall inside a change
 
-Aún con el patch, un comentario cuya línea el agente reescribió por completo
-puede quedar mal ubicado. Malla de seguridad:
-- **`anchor_text`** (idea de tuicr, `LineContext.content`): guardar el texto de la
-  línea comentada; si tras el patch el extmark ya no cae sobre ese texto (ni
-  cerca), marcar el comentario **`stale`** con indicador visual para que lo
-  revises, en vez de mostrarlo confiado en el lugar equivocado.
-- Registrar el HEAD-SHA de creación para poder avisar si el HEAD cambió mucho.
+Even with the patch, a comment whose line the agent rewrote entirely
+may end up misplaced. Safety net:
+- **`anchor_text`** (a tuicr idea, `LineContext.content`): save the text of the
+  commented line; if after the patch the extmark no longer lands on that text (nor
+  near it), mark the comment **`stale`** with a visual indicator so that you
+  review it, instead of showing it confidently in the wrong place.
+- Record the HEAD-SHA at creation so as to warn if HEAD changed a lot.
 
-#### Resumen del flujo auto
-disco cambia → watcher (debounce) o `notify_changed` → si buffer `modified`:
-avisar + ofrecer (no pisar) · si no: patch mínimo por diff → extmarks se
-re-anclan solos → marcar `stale` los dudosos (por `anchor_text`) → `nomodified` →
-vistas recomputan. Todo sin que el usuario haga nada.
+#### Summary of the auto flow
+disk changes → watcher (debounce) or `notify_changed` → if buffer `modified`:
+warn + offer (do not overwrite) · otherwise: minimal patch by diff → extmarks
+re-anchor by themselves → mark the doubtful ones `stale` (by `anchor_text`) → `nomodified` →
+views recompute. All without the user doing anything.
 
-**Notificación:** cuando el agente comenta/responde/resuelve, un `vim.notify`
-discreto (y opcional salto/decoración) para que sepas qué tocó.
+**Notification:** when the agent comments/replies/resolves, a discreet `vim.notify`
+(and an optional jump/decoration) so that you know what it touched.
 
-### 1.4 API `_G.ReviewAgent` (propuesta)
+### 1.4 `_G.ReviewAgent` API (proposal)
 
-Solo comentarios y coordinación. **El código NO pasa por acá** — lo escribe el
-agente en disco con sus herramientas.
+Only comments and coordination. **The code does NOT go through here** — the
+agent writes it to disk with its tools.
 
-Lectura:
-- `list(filter?)` → JSON de comentarios. `filter`: `{ author?, path?, resolved?, answered? }`.
-- `get(id)` → un comentario (con su hilo).
-- `context(id)` → el comentario + las líneas de código que abarca (para que el
-  agente entienda a qué se refiere sin adivinar).
+Read:
+- `list(filter?)` → JSON of comments. `filter`: `{ author?, path?, resolved?, answered? }`.
+- `get(id)` → one comment (with its thread).
+- `context(id)` → the comment + the lines of code it spans (so that the
+  agent understands what it refers to without guessing).
 
-Escritura de comentarios:
-- `add({ path, lnum, end_lnum?, text })` → crea comentario `author="agent"` (o el
-  modelo). Devuelve id.
-- `reply(parent_id, text)` → crea un comentario ligado a otro (`reply_to`), típico
-  para **responder/justificar** un comentario tuyo.
+Writing comments:
+- `add({ path, lnum, end_lnum?, text })` → creates a comment with `author="agent"` (or the
+  model). Returns id.
+- `reply(parent_id, text)` → creates a comment linked to another (`reply_to`), typically
+  to **reply to/justify** a comment of yours.
 - `resolve(id)` / `unresolve(id)`.
 - `update(id, text)`.
 - `delete(id)`.
-- `clean_resolved(path?)` → borra los resueltos (limpieza masiva).
+- `clean_resolved(path?)` → deletes the resolved ones (bulk cleanup).
 
-Coordinación con la edición en disco:
-- `is_modified(path)` → `boolean`: ¿ese archivo está abierto en Neovim con cambios
-  SIN guardar? El agente lo consulta ANTES de editar en disco, para no chocar con
-  algo que estás editando (ver 1.3.3).
-- `notify_changed(path)` → el agente avisa que terminó de editar ese archivo en
-  disco; Neovim hace `checktime`, recarga y re-ancla los comentarios (ver 1.3.2).
-- `servername()` → el socket actual (para que el agente sepa a dónde conectarse).
+Coordination with editing on disk:
+- `is_modified(path)` → `boolean`: is that file open in Neovim with UNSAVED
+  changes? The agent queries it BEFORE editing on disk, so as not to collide with
+  something you are editing (see 1.3.3).
+- `notify_changed(path)` → the agent signals that it finished editing that file on
+  disk; Neovim does `checktime`, reloads and re-anchors the comments (see 1.3.2).
+- `servername()` → the current socket (so that the agent knows where to connect).
 
-### 1.5 Comentarios del agente: autoría, threading, filtros
+### 1.5 Agent comments: authorship, threading, filters
 
-Extensión del modelo de datos (compatible hacia atrás):
+Extension of the data model (backward compatible):
 ```
 comment = {
   id, path, lnum, end_lnum, text, resolved, created_at,
   author,       -- "user" | "agent" | "<model-id>"
-  reply_to?,    -- id del comentario padre (respuesta/justificación)
+  reply_to?,    -- id of the parent comment (reply/justification)
 }
 ```
 
-- **Autoría visible:** los comentarios del agente se pintan distinto (ícono 🤖 /
-  color propio en gutter y badge) para distinguirlos de los tuyos.
-- **Threading (respuestas ligadas):** `reply_to` liga la respuesta del agente a
-  tu comentario. En el **peek** se ve el hilo completo (tu comentario + la
-  respuesta/justificación del agente debajo). En la **lista** se marca si un
-  comentario tuyo **fue respondido** y por quién.
-- **Filtros** (extender el `f` de la lista y `list(filter)`):
-  - por autor: míos / del agente / todos.
-  - por estado: abiertos / resueltos / todos.
-  - **respondidos / sin responder**: para que veas de un vistazo qué preguntas
-    tuyas ya tienen justificación del agente y cuáles no.
-- **Flujo típico:**
-  1. Dejás comentarios (dudas, pedidos).
-  2. `:Rya` copia el markdown agent-ready y se lo das al agente (o el agente lo
-     lee por `ReviewAgent.list`).
-  3. El agente **edita el código en disco por su cuenta** y, por RPC, **responde
-     ligado** a cada comentario (`reply`) con la justificación, opcionalmente lo
-     resuelve, y avisa `notify_changed(path)` de los archivos que tocó.
-  4. Neovim recarga esos archivos y re-ancla los comentarios (1.3.2). Tú ves en
-     vivo: el badge/gutter marca que hay respuesta del agente; abres el peek y
-     lees la justificación; aceptas (queda resuelto) o reabres.
-  5. `clean_resolved` para limpiar lo cerrado.
+- **Visible authorship:** the agent's comments are painted differently (🤖 icon /
+  own color in gutter and badge) to tell them apart from yours.
+- **Threading (linked replies):** `reply_to` links the agent's reply to
+  your comment. In the **peek** you see the full thread (your comment + the
+  agent's reply/justification below it). In the **list** it is marked whether one of your
+  comments **has been answered** and by whom.
+- **Filters** (extend the list's `f` and `list(filter)`):
+  - by author: mine / agent's / all.
+  - by state: open / resolved / all.
+  - **answered / unanswered**: so that you see at a glance which of your
+    questions already have a justification from the agent and which do not.
+- **Typical flow:**
+  1. You leave comments (questions, requests).
+  2. `:Rya` copies the agent-ready markdown and you give it to the agent (or the agent
+     reads it via `ReviewAgent.list`).
+  3. The agent **edits the code on disk on its own** and, over RPC, **replies
+     linked** to each comment (`reply`) with the justification, optionally resolves it,
+     and signals `notify_changed(path)` for the files it touched.
+  4. Neovim reloads those files and re-anchors the comments (1.3.2). You see it
+     live: the badge/gutter shows that there is an agent reply; you open the peek and
+     read the justification; you accept (it is left resolved) or reopen.
+  5. `clean_resolved` to clean up what is closed.
 
-### 1.6 Ideas extra para mejor flujo
+### 1.6 Extra ideas for a better flow
 
-- **Marcador "respondido por agente"** en el gutter (color/ícono distinto) para
-  saltar rápido a lo contestado.
-- **Marcador `stale`** en comentarios cuya línea cayó dentro de una zona que el
-  agente cambió en disco (re-anclaje incierto) → los revisas tú.
-- **Historial por comentario:** guardar los replies como hilo ordenado por fecha.
-- **"Aceptar respuesta":** un comando que marca el hilo como resuelto y (opcional)
-  archiva.
-- **Notas de sesión:** el agente puede dejar un comentario "resumen" a nivel
-  archivo (lnum=1) con lo que hizo.
-- **Anti-eco:** al re-anclar tras una recarga, no re-emitir eventos en loop.
+- **"Answered by agent" marker** in the gutter (different color/icon) to
+  quickly jump to what was answered.
+- **`stale` marker** on comments whose line fell inside a zone that the
+  agent changed on disk (uncertain re-anchoring) → you review them.
+- **History per comment:** save the replies as a thread ordered by date.
+- **"Accept reply":** a command that marks the thread as resolved and (optionally)
+  archives it.
+- **Session notes:** the agent can leave a "summary" comment at file level
+  (lnum=1) with what it did.
+- **Anti-echo:** when re-anchoring after a reload, do not re-emit events in a loop.
 
-### 1.7 Orden de implementación sugerido
-1. Modelo: agregar `author`, `reply_to`, `anchor_text`, `stale` a `core.state`
-   (con defaults; retro-compatible).
-2. Render/gutter/peek: distinguir autor + mostrar hilos + marca `stale`.
-3. Lista: filtro por autor y por respondido/sin responder.
-4. Re-anclaje AUTO (corazón del flujo): watcher (`vim.uv.fs_event`, debounce) +
-   `notify_changed` → **patch mínimo por diff** al buffer (extmarks se re-anclan
-   solos) → `anchor_text` + marca `stale` para los dudosos → conflicto si
-   `modified` (no pisar). `:ReviewReload` manual como fallback.
+### 1.7 Suggested implementation order
+1. Model: add `author`, `reply_to`, `anchor_text`, `stale` to `core.state`
+   (with defaults; backward compatible).
+2. Render/gutter/peek: distinguish author + show threads + `stale` mark.
+3. List: filter by author and by answered/unanswered.
+4. AUTO re-anchoring (the heart of the flow): watcher (`vim.uv.fs_event`, debounce) +
+   `notify_changed` → **minimal patch by diff** to the buffer (extmarks re-anchor
+   by themselves) → `anchor_text` + `stale` mark for the doubtful ones → conflict if
+   `modified` (do not overwrite). Manual `:ReviewReload` as a fallback.
 5. `rpc.lua`: list/get/context/add/reply/resolve/unresolve/update/delete/
    clean_resolved + is_modified/notify_changed.
-6. `init.lua`: `_G.ReviewAgent`, `opts.enabled`, notificaciones.
-7. Docs del protocolo + ejemplos `--remote-expr`.
+6. `init.lua`: `_G.ReviewAgent`, `opts.enabled`, notifications.
+7. Protocol docs + `--remote-expr` examples.
 
-### 1.8 Ideas de tuicr (referencia, no copiar)
+### 1.8 Ideas from tuicr (reference, do not copy)
 
-Revisado `~/Dev/tuicr-fork` (Rust). Valida gran parte de nuestro diseño y aporta:
+Reviewed `~/Dev/tuicr-fork` (Rust). It validates a large part of our design and contributes:
 
-- **`author` free-form** (`src/model/comment.rs`): el agente pasa su nombre
-  (`--username "Claude …"`), el humano cae en `"user"`. Retro-compatible (JSON
-  viejo rehidrata como `"user"`). → Idéntico a nuestro campo `author`.
-- **Ancla por contenido** (`LineContext { new_line, old_line, content }`):
-  guardan el **texto** de la línea además del número. Es exactamente nuestra idea
-  de `anchor_text` para re-localizar tras un cambio en disco. → Adoptar.
-- **`line_range`** (start/end inclusive) para multi-línea. → Ya lo tenemos
+- **Free-form `author`** (`src/model/comment.rs`): the agent passes its name
+  (`--username "Claude …"`), the human falls back to `"user"`. Backward compatible (old JSON
+  rehydrates as `"user"`). → Identical to our `author` field.
+- **Content anchor** (`LineContext { new_line, old_line, content }`):
+  they save the line's **text** in addition to the number. It is exactly our idea
+  of `anchor_text` to re-locate after a change on disk. → Adopt.
+- **`line_range`** (start/end inclusive) for multi-line. → We already have it
   (`lnum`/`end_lnum`).
-- **Tipos de comentario** (`Note`/`Suggestion`/`Issue`/`Praise`/`Custom`): opción
-  a futuro (no prioritario ahora).
-- **Lifecycle remoto** (`LocalDraft`/`PushedDraft`/`Submitted`, `remote_*_id`,
-  `commit_id`): es para integrar con PRs de GitHub. NO aplica a nuestro caso
-  (review local del working tree), pero muestra el patrón si algún día
-  integramos forge.
+- **Comment types** (`Note`/`Suggestion`/`Issue`/`Praise`/`Custom`): a future
+  option (not a priority now).
+- **Remote lifecycle** (`LocalDraft`/`PushedDraft`/`Submitted`, `remote_*_id`,
+  `commit_id`): it is for integrating with GitHub PRs. It does NOT apply to our case
+  (local review of the working tree), but it shows the pattern if we ever
+  integrate a forge.
 
-**Diferencia clave de contexto:** tuicr revisa un **diff de PR**, así que ancla
-en espacio-de-diff (side Old/New + old/new lineno) contra un diff fijo. Nosotros
-revisamos el **working tree en vivo**, por eso usamos **extmarks** (que siguen la
-línea al editar en el buffer) + **remapeo por diff** y **ancla por contenido**
-cuando el cambio viene de disco (agente). Distinto contexto, misma familia de
+**Key context difference:** tuicr reviews a **PR diff**, so it anchors
+in diff-space (side Old/New + old/new lineno) against a fixed diff. We
+review the **live working tree**, which is why we use **extmarks** (which follow the
+line while editing in the buffer) + **remapping by diff** and **content anchor**
+when the change comes from disk (agent). Different context, same family of
 ideas.
 
 ---
 
-## 2. Limpiar la config de Neovim
+## 2. Clean up the Neovim config
 
-Objetivo: dejar solo los plugins que usas, entendiendo dependencias, sin romper nada.
+Goal: keep only the plugins you use, understanding dependencies, without breaking anything.
 
-### 2.1 Inventario
-- Listar todo lo declarado en `~/.config/nvim/lua/plugins/*.lua`.
-- Para cada plugin: ¿lo usas? (comando/keymap/evento que dispare) ¿o es
-  dependencia de otro?
+### 2.1 Inventory
+- List everything declared in `~/.config/nvim/lua/plugins/*.lua`.
+- For each plugin: do you use it? (a command/keymap/event that triggers it) or is it a
+  dependency of another?
 
-### 2.2 Clasificar
-- **Directo** (lo usas tú): editor, LSP, treesitter, telescope, neo-tree, etc.
-- **Dependencia** (lo pide otro): p. ej. `plenary` (telescope/neo-tree/review),
+### 2.2 Classify
+- **Direct** (you use it): editor, LSP, treesitter, telescope, neo-tree, etc.
+- **Dependency** (another one requires it): e.g. `plenary` (telescope/neo-tree/review),
   `nui` (review popups), `nvim-web-devicons`, `window-picker` (neo-tree).
-  Estos **no se borran** aunque no los "uses" directamente.
-- **Candidato a sacar:** no referenciado por nadie y no lo usas.
+  These are **not deleted** even if you do not "use" them directly.
+- **Candidate for removal:** not referenced by anyone and you do not use it.
 
-### 2.3 Cómo manejar dependencias (lazy.nvim)
-- Si un plugin está en `dependencies = { ... }` de otro, lazy lo instala solo; no
-  hace falta declararlo aparte.
-- Antes de sacar algo, buscar si aparece como `dependencies` en otros specs.
-- `:Lazy` muestra el árbol y quién carga qué; `require("lazy").plugins()` da la lista.
+### 2.3 How to handle dependencies (lazy.nvim)
+- If a plugin is in another's `dependencies = { ... }`, lazy installs it by itself; there is
+  no need to declare it separately.
+- Before removing something, check whether it appears as `dependencies` in other specs.
+- `:Lazy` shows the tree and who loads what; `require("lazy").plugins()` gives the list.
 
-### 2.4 Método seguro
-1. Hacer el inventario y marcar candidatos (sin borrar).
-2. Desactivar (no borrar) con `enabled = false` los candidatos, uno o unos pocos
-   por vez.
-3. Reiniciar, usar normal un rato, ver si falta algo.
-4. Si todo bien, eliminar el spec; si algo se rompe, revertir.
-5. `:Lazy clean` para quitar los que ya no están declarados.
+### 2.4 Safe method
+1. Do the inventory and mark candidates (without deleting).
+2. Disable (do not delete) the candidates with `enabled = false`, one or a few
+   at a time.
+3. Restart, use it normally for a while, see if anything is missing.
+4. If all is well, delete the spec; if something breaks, revert.
+5. `:Lazy clean` to remove the ones that are no longer declared.
 
-### 2.5 Entregable
-Un informe: tabla de plugins (directo / dependencia / candidato a sacar), con el
-motivo de cada uno y qué depende de qué. Se puede generar leyendo
-`lua/plugins/*.lua`. **Se puede hacer como tarea aparte cuando quieras** —
-avisá y armo el inventario real de tu config.
+### 2.5 Deliverable
+A report: table of plugins (direct / dependency / candidate for removal), with the
+reason for each and what depends on what. It can be generated by reading
+`lua/plugins/*.lua`. **It can be done as a separate task whenever you want** —
+let me know and I will build the real inventory of your config.

@@ -1,43 +1,43 @@
 # review.nvim — Plan 03: Views (normal / inline / split)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development o superpowers:executing-plans. Steps con checkbox (`- [ ]`).
-> **Plan maestro:** `~/Dev/nvim/review.nvim/DESIGN.md` — este plan implementa el slice "views" de la tabla de Features. Toda firma aquí DEBE coincidir con el "Contrato del core" (ver `docs/plans/00-core.md`).
+> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development or superpowers:executing-plans. Steps use checkboxes (`- [ ]`).
+> **Master plan:** `~/Dev/nvim/review.nvim/DESIGN.md` — this plan implements the "views" slice of the Features table. Every signature here **must** match the "`core` contract" (see `docs/plans/00-core.md`).
 
-**Goal:** Construir la feature `views`: tres modos por-buffer (`normal`, `inline`, `split`) que cambian SOLO cómo se pinta el código, vía decoraciones (extmarks) sobre el buffer real. Sin tabs nuevas, buffer siempre editable.
+**Goal:** Build the `views` feature: three per-buffer modes (`normal`, `inline`, `split`) that change **only** how the code is painted, via decorations (extmarks) over the real buffer. No new tabs, the buffer is always editable.
 
-**Architecture:** `lua/review/features/views/` — `diff.lua` (parseo puro de `git diff -U0`), `inline.lua` (extmarks en `core.ns.views` sobre el buffer actual), `split.lua` (vsplit con scratch buffer readonly del contenido HEAD), `init.lua` (estado por-buffer `M.mode[bufnr]` + `set(bufnr, mode)`), `commands.lua` (`:ReviewView`/`:Rv`, keymap `<leader>rv`). Depende SOLO de `require("review.core")` (`git.rel_path`, `git.head_content`, `ns.views`, `events.emit`). Nunca requiere otra feature.
+**Architecture:** `lua/review/features/views/` — `diff.lua` (pure parsing of `git diff -U0`), `inline.lua` (extmarks in `core.ns.views` over the current buffer), `split.lua` (vsplit with a readonly scratch buffer of the HEAD content), `init.lua` (per-buffer state `M.mode[bufnr]` + `set(bufnr, mode)`), `commands.lua` (`:ReviewView`/`:Rv`, keymap `<leader>rv`). Depends **only** on `require("review.core")` (`git.rel_path`, `git.head_content`, `ns.views`, `events.emit`). It never requires another feature.
 
-**Tech Stack:** Lua, Neovim ≥ 0.10 (extmarks `virt_lines`, `line_hl_group`), plenary.nvim (tests busted).
+**Tech Stack:** Lua, Neovim ≥ 0.10 (extmarks `virt_lines`, `line_hl_group`), plenary.nvim (busted tests).
 
 ## Global Constraints
 
-- La vista es SOLO presentación: nunca modifica el contenido del buffer real, solo agrega/limpia extmarks en `core.ns.views`.
-- Sin tabs nuevas. `split` usa `:vsplit` con un buffer scratch (`buftype=nofile`, `readonly`) para el contenido HEAD; la ventana derecha sigue siendo el buffer real editable.
-- Al cambiar de modo (`set(bufnr, mode)`) SIEMPRE se limpia la vista previa antes de aplicar la nueva (nunca dejar extmarks/ventanas colgadas).
-- Togglear al mismo modo es idempotente (no duplica decoraciones ni ventanas).
-- Archivo sin cambios vs HEAD → `inline.render` es no-op (no pinta nada, no tira error).
-- Archivo nuevo (sin HEAD, `head_content` devuelve `nil`) → `split.open` avisa con `vim.notify` y no abre panel.
+- The view is **only** presentation: it never modifies the content of the real buffer, it only adds/clears extmarks in `core.ns.views`.
+- No new tabs. `split` uses `:vsplit` with a scratch buffer (`buftype=nofile`, `readonly`) for the HEAD content; the right window remains the real, editable buffer.
+- When changing mode (`set(bufnr, mode)`) the previous view is **always** cleared before applying the new one (never leave dangling extmarks/windows).
+- Toggling to the same mode is idempotent (it does not duplicate decorations or windows).
+- File without changes vs HEAD → `inline.render` is a no-op (paints nothing, raises no error).
+- New file (no HEAD, `head_content` returns `nil`) → `split.open` warns with `vim.notify` and does not open a panel.
 - Tests: `nvim --headless -c "PlenaryBustedFile tests/views/<spec>.lua" -c "qa"`.
 
 ---
 
-### Task 1: `diff.lua` — parseo puro de `git diff -U0`
+### Task 1: `diff.lua` — pure parsing of `git diff -U0`
 
 **Files:**
 - Create: `lua/review/features/views/diff.lua`, `tests/views/diff_spec.lua`
 
 **Interfaces:**
 - Produces:
-  - `diff.parse_unified_diff(text)` → `hunk[]`, `hunk = { old_start, old_count, new_start, new_count, del_lines={string...}, add_lines={string...}, add_lnums={int...} }` (`add_lnums` = números de línea 1-based en el NEW file que corresponden a `add_lines`).
-  - `diff.hunks_for(relpath, git_root)` → `hunk[]|nil` — corre `git -C git_root diff -U0 -- relpath` y parsea el output con `parse_unified_diff`. `nil` si el comando falla o no hay `git_root`.
+  - `diff.parse_unified_diff(text)` → `hunk[]`, `hunk = { old_start, old_count, new_start, new_count, del_lines={string...}, add_lines={string...}, add_lnums={int...} }` (`add_lnums` = 1-based line numbers in the new file that correspond to `add_lines`).
+  - `diff.hunks_for(relpath, git_root)` → `hunk[]|nil` — runs `git -C git_root diff -U0 -- relpath` and parses the output with `parse_unified_diff`. `nil` if the command fails or there is no `git_root`.
 
-- [ ] **Step 1: Test que falla — `tests/views/diff_spec.lua`**
+- [ ] **Step 1: Failing test — `tests/views/diff_spec.lua`**
 
 ```lua
 local diff = require("review.features.views.diff")
 
 describe("views.diff.parse_unified_diff", function()
-  it("parsea un hunk simple de reemplazo", function()
+  it("parses a simple replacement hunk", function()
     local text = table.concat({
       "diff --git a/foo.lua b/foo.lua",
       "index 111..222 100644",
@@ -62,7 +62,7 @@ describe("views.diff.parse_unified_diff", function()
     assert.are.same({ 2, 3, 4 }, h.add_lnums)
   end)
 
-  it("parsea múltiples hunks", function()
+  it("parses multiple hunks", function()
     local text = table.concat({
       "@@ -1 +1 @@",
       "-x",
@@ -77,12 +77,12 @@ describe("views.diff.parse_unified_diff", function()
     assert.are.same({ 11, 12 }, hunks[2].add_lnums)
   end)
 
-  it("texto vacío o sin hunks devuelve lista vacía", function()
+  it("empty text or text without hunks returns an empty list", function()
     assert.are.same({}, diff.parse_unified_diff(""))
     assert.are.same({}, diff.parse_unified_diff("diff --git a/x b/x\nindex 1..2 100644\n"))
   end)
 
-  it("hunk solo-agregado (old_count 0 por defecto a 1 si falta)", function()
+  it("add-only hunk (old_count defaults to 1 if missing)", function()
     local text = "@@ -5 +5,2 @@\n+added1\n+added2\n"
     local hunks = diff.parse_unified_diff(text)
     assert.are.equal(1, hunks[1].old_count)
@@ -93,23 +93,23 @@ describe("views.diff.parse_unified_diff", function()
 end)
 
 describe("views.diff.hunks_for", function()
-  it("nil si no hay git_root", function()
+  it("nil if there is no git_root", function()
     assert.is_nil(diff.hunks_for("foo.lua", nil))
   end)
 end)
 ```
 
-- [ ] **Step 2: Correr y ver fallar**
+- [ ] **Step 2: Run and watch it fail**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/views/diff_spec.lua" -c "qa"`
 Expected: FAIL (`module 'review.features.views.diff' not found`).
 
-- [ ] **Step 3: Implementar `lua/review/features/views/diff.lua`**
+- [ ] **Step 3: Implement `lua/review/features/views/diff.lua`**
 
 ```lua
 local M = {}
 
--- Parsea el header de un hunk unificado: @@ -old_start[,old_count] +new_start[,new_count] @@
+-- Parses the header of a unified hunk: @@ -old_start[,old_count] +new_start[,new_count] @@
 local function parse_hunk_header(line)
   local old_start, old_count, new_start, new_count =
     line:match("^@@ %-(%d+),?(%d*) %+(%d+),?(%d*) @@")
@@ -127,8 +127,8 @@ local function parse_hunk_header(line)
   }
 end
 
---- Parsea el texto completo de `git diff -U0` en una lista de hunks.
---- Ignora las líneas de header del diff (diff --git / index / --- / +++).
+--- Parses the full text of `git diff -U0` into a list of hunks.
+--- Ignores the diff header lines (diff --git / index / --- / +++).
 function M.parse_unified_diff(text)
   local hunks = {}
   if not text or text == "" then return hunks end
@@ -145,15 +145,15 @@ function M.parse_unified_diff(text)
         table.insert(current.add_lines, line:sub(2))
         table.insert(current.add_lnums, current.new_start + #current.add_lnums)
       end
-      -- otras líneas (---, +++, \ No newline at end of file) se ignoran
+      -- other lines (---, +++, \ No newline at end of file) are ignored
     end
   end
 
   return hunks
 end
 
---- Corre `git diff -U0 -- relpath` en git_root y devuelve los hunks parseados.
---- nil si no hay git_root o el comando falla.
+--- Runs `git diff -U0 -- relpath` in git_root and returns the parsed hunks.
+--- nil if there is no git_root or the command fails.
 function M.hunks_for(relpath, git_root)
   if not git_root then return nil end
   local out = vim.fn.system({ "git", "-C", git_root, "diff", "-U0", "--", relpath })
@@ -164,7 +164,7 @@ end
 return M
 ```
 
-- [ ] **Step 4: Correr y ver pasar**
+- [ ] **Step 4: Run and watch it pass**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/views/diff_spec.lua" -c "qa"`
 Expected: PASS (5).
@@ -173,12 +173,12 @@ Expected: PASS (5).
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(views/diff): parseo puro de git diff -U0"
+git commit -q -m "feat(views/diff): pure parsing of git diff -U0"
 ```
 
 ---
 
-### Task 2: `inline.lua` — decoraciones inline sobre el buffer real
+### Task 2: `inline.lua` — inline decorations over the real buffer
 
 **Files:**
 - Create: `lua/review/features/views/inline.lua`
@@ -186,12 +186,12 @@ git commit -q -m "feat(views/diff): parseo puro de git diff -U0"
 **Interfaces:**
 - Consumes: `core.git.rel_path`, `core.git.root`, `core.ns.views`, `views.diff.hunks_for` (Task 1).
 - Produces:
-  - `inline.render(core, bufnr)` — limpia `core.ns.views` en `bufnr` y pinta hunks: líneas borradas como `virt_lines` (hl `DiffDelete`) ANTES de la posición donde ocurrió el borrado; líneas agregadas con extmark `line_hl_group = "DiffAdd"` sobre las líneas reales indicadas por `add_lnums`. No-op si `rel_path` es `nil`, `root` es `nil`, o no hay hunks.
+  - `inline.render(core, bufnr)` — clears `core.ns.views` in `bufnr` and paints hunks: deleted lines as `virt_lines` (hl `DiffDelete`) **before** the position where the deletion occurred; added lines with an extmark `line_hl_group = "DiffAdd"` over the real lines indicated by `add_lnums`. No-op if `rel_path` is `nil`, `root` is `nil`, or there are no hunks.
   - `inline.clear(core, bufnr)` — `vim.api.nvim_buf_clear_namespace(bufnr, core.ns.views, 0, -1)`.
 
-Esta capa NO tiene test unitario propio (usa extmarks reales de un buffer vivo) — se cubre con verificación manual en Task 4. La lógica de parseo ya está testeada en Task 1.
+This layer has NO unit test of its own (it uses real extmarks of a live buffer) — it is covered by manual verification in Task 4. The parsing logic is already tested in Task 1.
 
-- [ ] **Step 1: Implementar `lua/review/features/views/inline.lua`**
+- [ ] **Step 1: Implement `lua/review/features/views/inline.lua`**
 
 ```lua
 local diff = require("review.features.views.diff")
@@ -202,8 +202,8 @@ function M.clear(core, bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, core.ns.views, 0, -1)
 end
 
---- Pinta decoraciones inline de diff sobre bufnr. No-op si el archivo no
---- pertenece al repo o no tiene cambios.
+--- Paints inline diff decorations over bufnr. No-op if the file does not
+--- belong to the repo or has no changes.
 function M.render(core, bufnr)
   M.clear(core, bufnr)
 
@@ -216,9 +216,9 @@ function M.render(core, bufnr)
 
   local ns = core.ns.views
   for _, h in ipairs(hunks) do
-    -- Líneas borradas: virt_lines colgando encima de la primera línea nueva
-    -- que corresponde a este hunk (o de la línea siguiente si el hunk es
-    -- puramente delete al final del archivo).
+    -- Deleted lines: virt_lines hanging above the first new line
+    -- that corresponds to this hunk (or above the next line if the hunk is
+    -- a pure delete at the end of the file).
     if #h.del_lines > 0 then
       local anchor_lnum = math.max(h.new_start - 1, 0)
       local virt_lines = {}
@@ -230,11 +230,11 @@ function M.render(core, bufnr)
         virt_lines_above = anchor_lnum > 0,
       })
       if not ok then
-        -- anchor fuera de rango (archivo más corto de lo esperado): ignorar
+        -- anchor out of range (file shorter than expected): ignore
       end
     end
 
-    -- Líneas agregadas: resaltar toda la línea real.
+    -- Added lines: highlight the whole real line.
     for _, lnum in ipairs(h.add_lnums) do
       local row = lnum - 1
       if row >= 0 and row < vim.api.nvim_buf_line_count(bufnr) then
@@ -253,12 +253,12 @@ return M
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(views/inline): render/clear de decoraciones inline"
+git commit -q -m "feat(views/inline): render/clear of inline decorations"
 ```
 
 ---
 
-### Task 3: `split.lua` — panel izquierdo con contenido HEAD
+### Task 3: `split.lua` — left panel with HEAD content
 
 **Files:**
 - Create: `lua/review/features/views/split.lua`
@@ -266,19 +266,19 @@ git commit -q -m "feat(views/inline): render/clear de decoraciones inline"
 **Interfaces:**
 - Consumes: `core.git.rel_path`, `core.git.head_content`, `core.ns.views`, `views.diff.hunks_for` (Task 1).
 - Produces:
-  - `split.open(core, bufnr)` — si `head_content(relpath)` es `nil` (archivo nuevo/sin HEAD o fuera de git), `vim.notify(..., WARN)` y retorna sin abrir nada. Si no: `:vsplit` a la izquierda del buffer actual, crea/reusa un scratch buffer (`buftype=nofile`, `bufhidden=wipe`, `readonly`, `modifiable=false`, nombre `review://head/<relpath>`) con las líneas de HEAD, pinta hl rojo/verde ahí con los mismos hunks (borradas = `DiffDelete` línea completa, contexto sin cambios sin hl), y deja el foco en la ventana derecha (buffer original).
-  - `split.close(core, bufnr)` — cierra la ventana del scratch buffer de HEAD **de ese buffer** si está abierta y vuelve a 1 columna. Idempotente (no-op si ese buffer no tiene panel).
-  - Guarda internamente `M._panels[bufnr] = { win, buf }` (estado POR BUFFER, no singleton) para poder cerrar el panel correcto.
+  - `split.open(core, bufnr)` — if `head_content(relpath)` is `nil` (new file/no HEAD or outside git), `vim.notify(..., WARN)` and returns without opening anything. Otherwise: `:vsplit` to the left of the current buffer, creates/reuses a scratch buffer (`buftype=nofile`, `bufhidden=wipe`, `readonly`, `modifiable=false`, name `review://head/<relpath>`) with the HEAD lines, paints red/green hl there with the same hunks (deleted = `DiffDelete` full line, unchanged context without hl), and leaves the focus on the right window (original buffer).
+  - `split.close(core, bufnr)` — closes the HEAD scratch buffer window **of that buffer** if it is open and returns to 1 column. Idempotent (no-op if that buffer has no panel).
+  - Internally stores `M._panels[bufnr] = { win, buf }` (per-buffer state, not a singleton) so the right panel can be closed.
 
-Sin test unitario propio (vsplit/ventanas reales) — verificación manual en Task 4.
+No unit test of its own (real vsplit/windows) — manual verification in Task 4.
 
-- [ ] **Step 1: Implementar `lua/review/features/views/split.lua`**
+- [ ] **Step 1: Implement `lua/review/features/views/split.lua`**
 
 ```lua
 local diff = require("review.features.views.diff")
 
--- Estado POR BUFFER: `_panels[bufnr] = { win = <left_win>, buf = <scratch> }`.
--- (Singleton global rompería si dos buffers estuvieran en modo split a la vez.)
+-- Per-buffer state: `_panels[bufnr] = { win = <left_win>, buf = <scratch> }`.
+-- (A global singleton would break if two buffers were in split mode at the same time.)
 local M = { _panels = {} }
 
 local function head_hl_lines(core, bufnr, head_lines, relpath)
@@ -296,25 +296,25 @@ local function head_hl_lines(core, bufnr, head_lines, relpath)
   end
 end
 
---- Abre el panel izquierdo con el contenido HEAD del archivo del buffer actual.
---- Avisa y no abre nada si el archivo no tiene HEAD (nuevo / fuera de git).
+--- Opens the left panel with the HEAD content of the current buffer's file.
+--- Warns and opens nothing if the file has no HEAD (new / outside git).
 function M.open(core, bufnr)
   local relpath = core.git.rel_path(bufnr)
   if not relpath then
-    vim.notify("review.nvim: buffer fuera del repo, no se puede abrir split", vim.log.levels.WARN)
+    vim.notify("review.nvim: buffer outside the repo, cannot open split", vim.log.levels.WARN)
     return
   end
 
   local head_lines = core.git.head_content(relpath)
   if not head_lines then
     vim.notify(
-      "review.nvim: '" .. relpath .. "' no tiene versión en HEAD (archivo nuevo)",
+      "review.nvim: '" .. relpath .. "' has no version in HEAD (new file)",
       vim.log.levels.WARN
     )
     return
   end
 
-  M.close(core, bufnr) -- cierra un panel previo de ESTE buffer, si lo hubiera
+  M.close(core, bufnr) -- closes a previous panel of this buffer, if there was one
 
   local target_win = vim.api.nvim_get_current_win()
   vim.cmd("topleft vsplit")
@@ -337,8 +337,8 @@ function M.open(core, bufnr)
   vim.api.nvim_set_current_win(target_win)
 end
 
---- Cierra el panel izquierdo de HEAD del buffer `bufnr` si está abierto.
---- Idempotente (no-op si ese buffer no tiene panel).
+--- Closes the left HEAD panel of buffer `bufnr` if it is open.
+--- Idempotent (no-op if that buffer has no panel).
 function M.close(core, bufnr)
   local p = M._panels[bufnr]
   if p and p.win and vim.api.nvim_win_is_valid(p.win) then
@@ -354,12 +354,12 @@ return M
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(views/split): panel izquierdo readonly con contenido HEAD"
+git commit -q -m "feat(views/split): readonly left panel with HEAD content"
 ```
 
 ---
 
-### Task 4: `init.lua` — estado por-buffer + `set(bufnr, mode)`
+### Task 4: `init.lua` — per-buffer state + `set(bufnr, mode)`
 
 **Files:**
 - Create: `lua/review/features/views/init.lua`, `tests/views/init_spec.lua`
@@ -367,11 +367,11 @@ git commit -q -m "feat(views/split): panel izquierdo readonly con contenido HEAD
 **Interfaces:**
 - Consumes: `inline` (Task 2), `split` (Task 3), `core.events.emit`.
 - Produces:
-  - `M.mode` — tabla `{ [bufnr] = "normal"|"inline"|"split" }`.
-  - `M.set(core, bufnr, mode)` — valida `mode` ∈ `{normal, inline, split}` (si no, error/no-op); limpia la vista previa según `M.mode[bufnr]` (`inline.clear` si era `inline`, `split.close` si era `split`); aplica la nueva (`inline.render` si `inline`, `split.open` si `split`, nada si `normal`); actualiza `M.mode[bufnr]`; emite `view:changed` con `{ bufnr, mode }`. Idempotente: si `mode` == `M.mode[bufnr]` actual, no reaplica ni reemite (no-op).
-  - `M.setup(core, opts)` — inicializa `M.mode = {}`, requiere `commands.lua` (Task 5) y lo invoca con `commands.setup(core, opts, M)`. Se auto-registra: `require("review.core").registry.register({ name = "views", setup = M.setup })`.
+  - `M.mode` — table `{ [bufnr] = "normal"|"inline"|"split" }`.
+  - `M.set(core, bufnr, mode)` — validates `mode` ∈ `{normal, inline, split}` (otherwise error/no-op); clears the previous view according to `M.mode[bufnr]` (`inline.clear` if it was `inline`, `split.close` if it was `split`); applies the new one (`inline.render` if `inline`, `split.open` if `split`, nothing if `normal`); updates `M.mode[bufnr]`; emits `view:changed` with `{ bufnr, mode }`. Idempotent: if `mode` == current `M.mode[bufnr]`, it does not reapply or re-emit (no-op).
+  - `M.setup(core, opts)` — initializes `M.mode = {}`, requires `commands.lua` (Task 5) and invokes it with `commands.setup(core, opts, M)`. It self-registers: `require("review.core").registry.register({ name = "views", setup = M.setup })`.
 
-- [ ] **Step 1: Test que falla — `tests/views/init_spec.lua`**
+- [ ] **Step 1: Failing test — `tests/views/init_spec.lua`**
 
 ```lua
 local views = require("review.features.views")
@@ -381,7 +381,7 @@ local function fake_core()
   return {
     ns = { views = 1 },
     git = {
-      rel_path = function() return nil end, -- fuera de git: inline/split serán no-op seguro
+      rel_path = function() return nil end, -- outside git: inline/split will be a safe no-op
       root = function() return nil end,
       head_content = function() return nil end,
     },
@@ -401,11 +401,11 @@ describe("views.set", function()
     bufnr = vim.api.nvim_create_buf(false, true)
   end)
 
-  it("normal por defecto si nunca se seteó", function()
+  it("normal by default if it was never set", function()
     assert.is_nil(views.mode[bufnr])
   end)
 
-  it("set aplica y guarda el modo, emite view:changed", function()
+  it("set applies and stores the mode, emits view:changed", function()
     views.set(core, bufnr, "inline")
     assert.are.equal("inline", views.mode[bufnr])
     assert.are.equal(1, #core._emitted)
@@ -413,27 +413,27 @@ describe("views.set", function()
     assert.are.same({ bufnr = bufnr, mode = "inline" }, core._emitted[1].payload)
   end)
 
-  it("togglear al mismo modo es idempotente (no reemite)", function()
+  it("toggling to the same mode is idempotent (does not re-emit)", function()
     views.set(core, bufnr, "inline")
     views.set(core, bufnr, "inline")
     assert.are.equal(1, #core._emitted)
   end)
 
-  it("cambiar de inline a split limpia inline y aplica split", function()
+  it("switching from inline to split clears inline and applies split", function()
     views.set(core, bufnr, "inline")
     views.set(core, bufnr, "split")
     assert.are.equal("split", views.mode[bufnr])
     assert.are.equal(2, #core._emitted)
   end)
 
-  it("mode invalido no cambia el estado", function()
+  it("invalid mode does not change the state", function()
     views.set(core, bufnr, "inline")
     views.set(core, bufnr, "bogus")
     assert.are.equal("inline", views.mode[bufnr])
     assert.are.equal(1, #core._emitted)
   end)
 
-  it("volver a normal limpia la vista previa", function()
+  it("going back to normal clears the previous view", function()
     views.set(core, bufnr, "inline")
     views.set(core, bufnr, "normal")
     assert.are.equal("normal", views.mode[bufnr])
@@ -441,12 +441,12 @@ describe("views.set", function()
 end)
 ```
 
-- [ ] **Step 2: Correr y ver fallar**
+- [ ] **Step 2: Run and watch it fail**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/views/init_spec.lua" -c "qa"`
 Expected: FAIL (`module 'review.features.views' not found`).
 
-- [ ] **Step 3: Implementar `lua/review/features/views/init.lua`**
+- [ ] **Step 3: Implement `lua/review/features/views/init.lua`**
 
 ```lua
 local inline = require("review.features.views.inline")
@@ -471,11 +471,11 @@ local function apply(core, bufnr, mode)
   elseif mode == "split" then
     split.open(core, bufnr)
   end
-  -- "normal": nada que aplicar, el buffer se ve como siempre.
+  -- "normal": nothing to apply, the buffer looks as usual.
 end
 
---- Cambia el modo de vista de bufnr. Limpia la vista previa antes de aplicar
---- la nueva. Idempotente si mode == modo actual. No-op si mode es inválido.
+--- Changes the view mode of bufnr. Clears the previous view before applying
+--- the new one. Idempotent if mode == current mode. No-op if mode is invalid.
 function M.set(core, bufnr, mode)
   if not VALID_MODES[mode] then return end
   local current = M.mode[bufnr] or "normal"
@@ -490,8 +490,8 @@ end
 
 function M.setup(core, opts)
   M.mode = {}
-  -- Limpiar el estado por-buffer cuando el buffer se destruye, para que
-  -- Neovim no recicle su bufnr con un modo heredado (bug de estado obsoleto).
+  -- Clear the per-buffer state when the buffer is destroyed, so that
+  -- Neovim does not recycle its bufnr with an inherited mode (stale-state bug).
   vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
     group = vim.api.nvim_create_augroup("ReviewViews", { clear = true }),
     callback = function(a)
@@ -508,7 +508,7 @@ require("review.core").registry.register({ name = "views", setup = M.setup })
 return M
 ```
 
-- [ ] **Step 4: Correr y ver pasar** (fallará hasta Task 5 porque `commands.setup` no existe — el `require` es lazy dentro de `M.setup`, que no se llama en el test, así que ya debería pasar)
+- [ ] **Step 4: Run and watch it pass** (it would fail until Task 5 because `commands.setup` does not exist — the `require` is lazy inside `M.setup`, which is not called in the test, so it should already pass)
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/views/init_spec.lua" -c "qa"`
 Expected: PASS (6).
@@ -517,23 +517,23 @@ Expected: PASS (6).
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(views): estado por-buffer, set(bufnr, mode) con limpieza y evento view:changed"
+git commit -q -m "feat(views): per-buffer state, set(bufnr, mode) with cleanup and view:changed event"
 ```
 
 ---
 
-### Task 5: `commands.lua` — `:ReviewView`/`:Rv` + keymap cíclico
+### Task 5: `commands.lua` — `:ReviewView`/`:Rv` + cycling keymap
 
 **Files:**
 - Create: `lua/review/features/views/commands.lua`
 
 **Interfaces:**
-- Consumes: `M` (módulo de Task 4, pasado por parámetro para evitar require circular).
-- Produces: `commands.setup(core, opts, views_mod)` — registra:
-  - `:ReviewView {normal|inline|split}` y alias `:Rv` (ambos comandos REALES, `nargs = 1` + `complete` sobre los 3 valores); llaman `views_mod.set(core, vim.api.nvim_get_current_buf(), arg)`. La minúscula `rv` la resuelve `plugin/review.lua`.
-  - Keymap `(opts.leader or "<leader>r") .. "v"` en modo normal que cicla `normal → inline → split → normal` sobre el buffer actual.
+- Consumes: `M` (module from Task 4, passed as a parameter to avoid a circular require).
+- Produces: `commands.setup(core, opts, views_mod)` — registers:
+  - `:ReviewView {normal|inline|split}` and alias `:Rv` (both real commands, `nargs = 1` + `complete` over the 3 values); they call `views_mod.set(core, vim.api.nvim_get_current_buf(), arg)`. The lowercase `rv` is resolved by `plugin/review.lua`.
+  - Keymap `(opts.leader or "<leader>r") .. "v"` in normal mode that cycles `normal → inline → split → normal` over the current buffer.
 
-- [ ] **Step 1: Implementar `lua/review/features/views/commands.lua`**
+- [ ] **Step 1: Implement `lua/review/features/views/commands.lua`**
 
 ```lua
 local M = {}
@@ -556,7 +556,7 @@ function M.setup(core, opts, views_mod)
   local function run(cmd_opts)
     local mode = cmd_opts.args
     if mode == "" then
-      vim.notify("uso: :ReviewView {normal|inline|split}", vim.log.levels.ERROR)
+      vim.notify("usage: :ReviewView {normal|inline|split}", vim.log.levels.ERROR)
       return
     end
     views_mod.set(core, vim.api.nvim_get_current_buf(), mode)
@@ -566,8 +566,8 @@ function M.setup(core, opts, views_mod)
     nargs = 1,
     complete = function() return ORDER end,
   }
-  -- Comando largo + alias corto, ambos comandos REALES. La minúscula `rv`
-  -- la resuelve plugin/review.lua (core Task 7) vía cnoreabbrev → Rv.
+  -- Long command + short alias, both real commands. The lowercase `rv`
+  -- is resolved by plugin/review.lua (core Task 7) via cnoreabbrev → Rv.
   vim.api.nvim_create_user_command("ReviewView", run, ucmd_opts)
   vim.api.nvim_create_user_command("Rv", run, vim.deepcopy(ucmd_opts))
 
@@ -575,70 +575,70 @@ function M.setup(core, opts, views_mod)
     local bufnr = vim.api.nvim_get_current_buf()
     local current = views_mod.mode[bufnr] or "normal"
     views_mod.set(core, bufnr, next_mode(current))
-  end, { desc = "review.nvim: ciclar vista normal/inline/split" })
+  end, { desc = "review.nvim: cycle view normal/inline/split" })
 end
 
 return M
 ```
 
-- [ ] **Step 2: Verificación manual — comandos y keymap**
+- [ ] **Step 2: Manual verification — commands and keymap**
 
-1. `cd ~/Dev/nvim/review.nvim`, editar un archivo con cambios sin commitear (o crear uno nuevo y modificar una línea).
-2. `nvim --headless` no sirve para esto: abrir Neovim normal con `nvim -u NONE -c "set rtp+=." -c "lua require('review').setup()"` sobre el archivo modificado.
-3. `:ReviewView inline` → deben verse las líneas borradas como `virt_lines` con fondo rojo por encima de su posición, y las líneas agregadas resaltadas con `DiffAdd` en toda la línea. El buffer sigue siendo editable (escribir algo y confirmar que entra en modo insert normalmente).
-4. `:ReviewView split` → se abre una ventana a la izquierda con el contenido de HEAD (readonly, con líneas borradas resaltadas en rojo); la ventana derecha sigue siendo el buffer real y editable.
-5. `:ReviewView normal` → el panel izquierdo se cierra y las decoraciones inline desaparecen; queda 1 sola columna, buffer intacto.
-6. Repetir `:ReviewView inline` dos veces seguidas (mismo modo) → no debe duplicar extmarks ni parpadear.
-7. Probar `<leader>rv` repetidamente → debe ciclar `normal → inline → split → normal → ...`.
-8. Probar con un archivo SIN cambios vs HEAD → `:ReviewView inline` no debe pintar nada ni tirar error (no-op).
-9. Probar con un archivo nuevo (`git add` sin commit, sin HEAD) → `:ReviewView split` debe mostrar el `vim.notify` de advertencia y NO abrir panel.
-10. `:Rv inline` (alias) debe comportarse igual que `:ReviewView inline`.
-11. **Hunk de borrado puro:** borrar unas líneas (sin agregar) y `:ReviewView inline` → confirmar que las `virt_lines` rojas aparecen en la posición correcta (justo donde estaban las líneas borradas, no una línea corrida). Si aparecen desplazadas, ajustar `anchor_lnum`/`virt_lines_above` en `inline.lua` (la convención de `git diff -U0` para `@@ -N,M +K,0 @@` es que `K` apunta a la línea de contexto previa al borrado).
-12. **Archivo nuevo (untracked) en inline:** `:ReviewView inline` sobre un archivo sin HEAD → no-op silencioso (git diff no lo compara); confirmar que no rompe (limitación conocida: no marca "todo nuevo").
-13. **Split en dos buffers distintos:** abrir buffer A con cambios → `:ReviewView split`; sin cerrar, ir a buffer B con cambios → `:ReviewView split`; volver a A → `:ReviewView normal`. Confirmar que cada panel corresponde a su buffer y no quedan ventanas colgadas (valida el estado por-buffer de `_panels`).
+1. `cd ~/Dev/nvim/review.nvim`, edit a file with uncommitted changes (or create a new one and modify a line).
+2. `nvim --headless` is no use for this: open regular Neovim with `nvim -u NONE -c "set rtp+=." -c "lua require('review').setup()"` on the modified file.
+3. `:ReviewView inline` → deleted lines should show as `virt_lines` with a red background above their position, and added lines highlighted with `DiffAdd` across the whole line. The buffer is still editable (type something and confirm that it enters insert mode normally).
+4. `:ReviewView split` → a window opens on the left with the HEAD content (readonly, with deleted lines highlighted in red); the right window remains the real, editable buffer.
+5. `:ReviewView normal` → the left panel closes and the inline decorations disappear; only 1 column is left, buffer intact.
+6. Repeat `:ReviewView inline` twice in a row (same mode) → it must not duplicate extmarks or flicker.
+7. Try `<leader>rv` repeatedly → it must cycle `normal → inline → split → normal → ...`.
+8. Try a file **without** changes vs HEAD → `:ReviewView inline` must paint nothing and raise no error (no-op).
+9. Try a new file (`git add` without commit, no HEAD) → `:ReviewView split` must show the warning `vim.notify` and **not** open a panel.
+10. `:Rv inline` (alias) must behave the same as `:ReviewView inline`.
+11. **Pure-delete hunk:** delete some lines (without adding) and `:ReviewView inline` → confirm that the red `virt_lines` appear in the right position (right where the deleted lines were, not shifted by one line). If they appear shifted, adjust `anchor_lnum`/`virt_lines_above` in `inline.lua` (the `git diff -U0` convention for `@@ -N,M +K,0 @@` is that `K` points to the context line before the deletion).
+12. **New (untracked) file in inline:** `:ReviewView inline` on a file without HEAD → silent no-op (git diff does not compare it); confirm that it does not break (known limitation: it does not mark "everything new").
+13. **Split in two different buffers:** open buffer A with changes → `:ReviewView split`; without closing, go to buffer B with changes → `:ReviewView split`; go back to A → `:ReviewView normal`. Confirm that each panel corresponds to its buffer and no windows are left dangling (validates the per-buffer state of `_panels`).
 
 - [ ] **Step 3: Commit**
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(views/commands): :ReviewView/:Rv + keymap <leader>rv cíclico"
+git commit -q -m "feat(views/commands): :ReviewView/:Rv + cycling <leader>rv keymap"
 ```
 
 ---
 
-### Task 6: Suite completa de la feature
+### Task 6: Full feature suite
 
 **Files:**
-- No crea archivos nuevos.
+- Creates no new files.
 
-- [ ] **Step 1: Correr toda la suite de `views`**
+- [ ] **Step 1: Run the whole `views` suite**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedDirectory tests/views/ {minimal_init='tests/minimal_init.lua'}" -c "qa"`
 Expected: PASS (diff 5, init 6).
 
-- [ ] **Step 2: Correr la suite completa del plugin (no romper core)**
+- [ ] **Step 2: Run the plugin's full suite (do not break core)**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedDirectory tests/ {minimal_init='tests/minimal_init.lua'}" -c "qa"`
-Expected: todos los specs de `core` y `views` en PASS.
+Expected: all `core` and `views` specs PASS.
 
-- [ ] **Step 3: Commit final (si hubo cambios pendientes de fixtures/ajustes)**
+- [ ] **Step 3: Final commit (if there were pending fixture/adjustment changes)**
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "test(views): verificación de suite completa del slice"
+git commit -q -m "test(views): full-suite verification of the slice"
 ```
 
 ---
 
 ## Self-Review
 
-- **Cobertura del contrato (DESIGN.md):** `git.head_content` ✅ (Task 3, `split.open`), `git.changed_files` — NO consumido directamente por `views` (lo usa `sidebar`; `views` solo necesita `rel_path`/`root`/`head_content` para el archivo activo), `ns.views` ✅ (Task 2/3, único namespace usado, limpiado en cada `set`), `events.emit("view:changed", {bufnr, mode})` ✅ (Task 4). Modos `normal/inline/split` ✅ (Task 4). `:ReviewView`/`:Rv` ✅ (Task 5, coincide con la tabla de comandos del DESIGN).
-- **Regla de dependencia:** ningún módulo de `views` hace `require("review.features.*")` de otra feature; solo `require("review.core")` (vía `M.setup(core, opts)`) y submódulos internos del propio slice.
-- **Placeholders:** ninguno — todo el código Lua está completo y es ejecutable.
-- **Edge-cases cubiertos:**
-  - Archivo sin cambios → `inline.render` no-op (Task 2, `hunks` vacío o `nil` corta antes de pintar).
-  - Archivo nuevo sin HEAD → `split.open` avisa y no abre (Task 3, chequeo de `head_content == nil`).
-  - Togglear al mismo modo → no-op idempotente, no reemite evento (Task 4, test "togglear al mismo modo es idempotente").
-  - Cambio de modo → limpieza de la vista previa ANTES de aplicar la nueva, nunca queda decoración/ventana colgada (Task 4, `clear_current` antes de `apply`).
-  - Edición del buffer real → nunca se toca `nvim_buf_set_lines` sobre el buffer del usuario en `inline`/`split`; solo extmarks y una ventana con buffer scratch separado.
-- **Testing:** parte pura (`diff.parse_unified_diff`, `diff.hunks_for` con `git_root=nil`) y transiciones de estado (`M.set`) cubiertas con specs; UI real (virt_lines, vsplit visual, notify) delegada a verificación manual explícita en Task 5 Step 2, con pasos concretos y reproducibles.
+- **Contract coverage (DESIGN.md):** `git.head_content` ✅ (Task 3, `split.open`), `git.changed_files` — **not** consumed directly by `views` (used by `sidebar`; `views` only needs `rel_path`/`root`/`head_content` for the active file), `ns.views` ✅ (Task 2/3, the only namespace used, cleared on every `set`), `events.emit("view:changed", {bufnr, mode})` ✅ (Task 4). Modes `normal/inline/split` ✅ (Task 4). `:ReviewView`/`:Rv` ✅ (Task 5, matches the DESIGN command table).
+- **Dependency rule:** no `views` module does `require("review.features.*")` of another feature; only `require("review.core")` (via `M.setup(core, opts)`) and internal submodules of the slice itself.
+- **Placeholders:** none — all the Lua code is complete and executable.
+- **Edge cases covered:**
+  - File without changes → `inline.render` no-op (Task 2, an empty or `nil` `hunks` cuts out before painting).
+  - New file without HEAD → `split.open` warns and does not open (Task 3, `head_content == nil` check).
+  - Toggling to the same mode → idempotent no-op, does not re-emit the event (Task 4, test "toggling to the same mode is idempotent").
+  - Mode change → the previous view is cleared before applying the new one, no decoration/window is ever left dangling (Task 4, `clear_current` before `apply`).
+  - Editing the real buffer → `nvim_buf_set_lines` is never called on the user's buffer in `inline`/`split`; only extmarks and a window with a separate scratch buffer.
+- **Testing:** pure part (`diff.parse_unified_diff`, `diff.hunks_for` with `git_root=nil`) and state transitions (`M.set`) covered with specs; real UI (virt_lines, visual vsplit, notify) delegated to explicit manual verification in Task 5 Step 2, with concrete and reproducible steps.

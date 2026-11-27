@@ -1,108 +1,108 @@
-# review.nvim — Plan 02: Export (markdown agent-ready + yank)
+# review.nvim — Plan 02: Export (agent-ready markdown + yank)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development. Steps con checkbox (`- [ ]`).
-> **Plan maestro:** `~/Dev/nvim/review.nvim/DESIGN.md` — este plan implementa el slice `export` de la tabla "Features". Toda firma aquí DEBE coincidir con el "Contrato del core" (ver `docs/plans/00-core.md`).
+> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development. Steps use checkboxes (`- [ ]`).
+> **Master plan:** `~/Dev/nvim/review.nvim/DESIGN.md` — this plan implements the `export` slice of the "Features" table. Every signature here **must** match the "`core` contract" (see `docs/plans/00-core.md`).
 
-**Goal:** Construir el vertical slice `export`: formateo de comentarios a markdown agent-ready (con anclas `path:lnum`) y comandos de yank al registro `+` (`:ReviewYankFile`/`:Ryf`, `:ReviewYankAll`/`:Rya`). Depende SOLO de `core.state` (y `core.git.rel_path` para resolver el archivo actual en `commands.lua`).
+**Goal:** Build the `export` vertical slice: formatting comments as agent-ready markdown (with `path:lnum` anchors) and yank commands to the `+` register (`:ReviewYankFile`/`:Ryf`, `:ReviewYankAll`/`:Rya`). Depends **only** on `core.state` (and `core.git.rel_path` to resolve the current file in `commands.lua`).
 
-**Architecture:** Módulos Lua bajo `lua/review/features/export/`. `markdown.lua` es lógica pura (sin I/O, sin `vim.fn.setreg`) — testeable con plenary sin mocks de registro. `commands.lua` es el borde con Neovim: registra `:ReviewYankFile`/`:ReviewYankAll`, resuelve el buffer actual vía `core.git.rel_path(0)`, llama a `markdown.lua` y copia con `vim.fn.setreg("+", ...)`. `init.lua` es el punto de entrada de la feature: `M.setup(core, opts)` registra comandos/keymaps, y al final del archivo se auto-registra en `core.registry`.
+**Architecture:** Lua modules under `lua/review/features/export/`. `markdown.lua` is pure logic (no I/O, no `vim.fn.setreg`) — testable with plenary without register mocks. `commands.lua` is the edge with Neovim: it registers `:ReviewYankFile`/`:ReviewYankAll`, resolves the current buffer via `core.git.rel_path(0)`, calls `markdown.lua` and copies with `vim.fn.setreg("+", ...)`. `init.lua` is the feature's entry point: `M.setup(core, opts)` registers commands/keymaps, and at the end of the file it self-registers in `core.registry`.
 
-**Tech Stack:** Lua, Neovim ≥ 0.10, plenary.nvim (tests busted).
+**Tech Stack:** Lua, Neovim ≥ 0.10, plenary.nvim (busted tests).
 
 ## Global Constraints
 
-- La feature **NUNCA** hace `require("review.features.otra")`. Solo `require("review.core")`.
-- `markdown.lua` es lógica pura: recibe listas de `comment` ya resueltas por el caller (`state.for_path`/`state.all`), no llama a `core.state` directamente salvo en `file()`/`all()` (helpers finos que delegan a `core.state.for_path`/`core.state.all`).
-- Comentarios **resueltos** (`resolved == true`) se excluyen siempre del markdown.
-- Ancla: `` `path:lnum` `` si `lnum == end_lnum`, `` `path:lnum-end_lnum` `` si `end_lnum > lnum`.
-- Lista vacía (o todo resuelto) → `markdown()` devuelve `""` (string vacío, sin header suelto).
-- `commands.lua` nunca lanza error si `core.git.rel_path(0)` devuelve `nil` (buffer sin archivo o fuera del repo): notifica con `vim.notify` y no ejecuta el yank.
-- Comandos capitalizados (`:ReviewYankFile`, `:ReviewYankAll`); los alias cortos (`:Ryf`, `:Rya`) se declaran como `vim.api.nvim_create_user_command` adicionales (no dependen de `cnoreabbrev`, que es responsabilidad de `plugin/review.lua` para las versiones en minúscula `ryf`/`rya` — fuera de alcance de este plan).
-- Keymaps `<leader>rf` (yank file) y `<leader>ra` (yank all), con prefijo configurable vía `opts.leader` (default `M.config.leader` del plan 00, típicamente `<leader>r`).
-- Tests: `nvim --headless -c "PlenaryBustedFile tests/export/<spec>.lua" -c "qa"`. Patrón busted igual al de `00-core.md`: `store.root_fn` override + `state._reset()` + `state.add(...)`.
+- The feature **never** does `require("review.features.other")`. Only `require("review.core")`.
+- `markdown.lua` is pure logic: it receives lists of `comment` already resolved by the caller (`state.for_path`/`state.all`), and does not call `core.state` directly except in `file()`/`all()` (thin helpers that delegate to `core.state.for_path`/`core.state.all`).
+- **Resolved** comments (`resolved == true`) are always excluded from the markdown.
+- Anchor: `` `path:lnum` `` if `lnum == end_lnum`, `` `path:lnum-end_lnum` `` if `end_lnum > lnum`.
+- Empty list (or everything resolved) → `markdown()` returns `""` (empty string, no stray header).
+- `commands.lua` never raises an error if `core.git.rel_path(0)` returns `nil` (buffer without a file or outside the repo): it notifies with `vim.notify` and does not run the yank.
+- Capitalized commands (`:ReviewYankFile`, `:ReviewYankAll`); the short aliases (`:Ryf`, `:Rya`) are declared as additional `vim.api.nvim_create_user_command` calls (they do not depend on `cnoreabbrev`, which is the responsibility of `plugin/review.lua` for the lowercase versions `ryf`/`rya` — out of scope for this plan).
+- Keymaps `<leader>rf` (yank file) and `<leader>ra` (yank all), with a prefix configurable via `opts.leader` (default `M.config.leader` from plan 00, typically `<leader>r`).
+- Tests: `nvim --headless -c "PlenaryBustedFile tests/export/<spec>.lua" -c "qa"`. Busted pattern identical to `00-core.md`: `store.root_fn` override + `state._reset()` + `state.add(...)`.
 
 ---
 
-### Task 1: `features/export/markdown.lua` — formateo puro a markdown
+### Task 1: `features/export/markdown.lua` — pure markdown formatting
 
 **Files:**
 - Create: `lua/review/features/export/markdown.lua`, `tests/export/markdown_spec.lua`
 
 **Interfaces:**
-- Consumes: `core.state.for_path(relpath)`, `core.state.all()` (Task 5 de `00-core.md`).
+- Consumes: `core.state.for_path(relpath)`, `core.state.all()` (Task 5 of `00-core.md`).
 - Produces:
-  - `markdown.markdown(list)` → `string` — recibe un `comment[]`, filtra resueltos, devuelve markdown numerado con ancla. `""` si no queda nada.
+  - `markdown.markdown(list)` → `string` — receives a `comment[]`, filters out resolved ones, returns numbered markdown with an anchor. `""` if nothing is left.
   - `markdown.file(core, relpath)` → `string` — `markdown.markdown(core.state.for_path(relpath))`.
   - `markdown.all(core)` → `string` — `markdown.markdown(core.state.all())`.
 
-- [ ] **Step 1: Test que falla — `tests/export/markdown_spec.lua`**
+- [ ] **Step 1: Failing test — `tests/export/markdown_spec.lua`**
 
 ```lua
 local md = require("review.features.export.markdown")
 
 describe("features.export.markdown", function()
   describe("markdown(list)", function()
-    it("lista vacía devuelve string vacío", function()
+    it("empty list returns an empty string", function()
       assert.are.equal("", md.markdown({}))
     end)
 
-    it("línea simple: ancla path:lnum sin rango", function()
+    it("single line: path:lnum anchor without a range", function()
       local list = {
-        { id = "1", path = "src/a.ts", lnum = 10, end_lnum = 10, text = "ojo con esto", resolved = false },
+        { id = "1", path = "src/a.ts", lnum = 10, end_lnum = 10, text = "watch out for this", resolved = false },
       }
       local out = md.markdown(list)
       assert.is_truthy(out:match("^1%. "))
       assert.is_truthy(out:match("`src/a%.ts:10`"))
       assert.is_falsy(out:match("`src/a%.ts:10-10`"))
-      assert.is_truthy(out:match("ojo con esto"))
+      assert.is_truthy(out:match("watch out for this"))
     end)
 
-    it("rango: ancla path:lnum-end_lnum cuando end_lnum > lnum", function()
+    it("range: path:lnum-end_lnum anchor when end_lnum > lnum", function()
       local list = {
-        { id = "1", path = "src/b.ts", lnum = 5, end_lnum = 8, text = "revisar bloque", resolved = false },
+        { id = "1", path = "src/b.ts", lnum = 5, end_lnum = 8, text = "review block", resolved = false },
       }
       local out = md.markdown(list)
       assert.is_truthy(out:match("`src/b%.ts:5-8`"))
     end)
 
-    it("excluye comentarios resueltos", function()
+    it("excludes resolved comments", function()
       local list = {
         { id = "1", path = "a.ts", lnum = 1, end_lnum = 1, text = "visible", resolved = false },
-        { id = "2", path = "a.ts", lnum = 2, end_lnum = 2, text = "resuelto", resolved = true },
+        { id = "2", path = "a.ts", lnum = 2, end_lnum = 2, text = "resolved", resolved = true },
       }
       local out = md.markdown(list)
       assert.is_truthy(out:match("visible"))
-      assert.is_falsy(out:match("resuelto"))
+      assert.is_falsy(out:match("resolved"))
     end)
 
-    it("todo resuelto devuelve string vacío (sin header suelto)", function()
+    it("everything resolved returns an empty string (no stray header)", function()
       local list = {
-        { id = "1", path = "a.ts", lnum = 1, end_lnum = 1, text = "resuelto", resolved = true },
+        { id = "1", path = "a.ts", lnum = 1, end_lnum = 1, text = "resolved", resolved = true },
       }
       assert.are.equal("", md.markdown(list))
     end)
 
-    it("numera correctamente varios comentarios no resueltos", function()
+    it("numbers several unresolved comments correctly", function()
       local list = {
-        { id = "1", path = "a.ts", lnum = 1, end_lnum = 1, text = "uno", resolved = false },
-        { id = "2", path = "a.ts", lnum = 2, end_lnum = 2, text = "dos", resolved = true },
-        { id = "3", path = "a.ts", lnum = 3, end_lnum = 3, text = "tres", resolved = false },
+        { id = "1", path = "a.ts", lnum = 1, end_lnum = 1, text = "one", resolved = false },
+        { id = "2", path = "a.ts", lnum = 2, end_lnum = 2, text = "two", resolved = true },
+        { id = "3", path = "a.ts", lnum = 3, end_lnum = 3, text = "three", resolved = false },
       }
       local out = md.markdown(list)
-      assert.is_truthy(out:match("1%. .*uno"))
-      assert.is_truthy(out:match("2%. .*tres"))
+      assert.is_truthy(out:match("1%. .*one"))
+      assert.is_truthy(out:match("2%. .*three"))
       assert.is_falsy(out:match("3%. "))
     end)
 
-    it("colapsa saltos de línea del texto (no rompe la numeración)", function()
+    it("collapses line breaks in the text (does not break the numbering)", function()
       local list = {
-        { id = "1", path = "a.ts", lnum = 1, end_lnum = 1, text = "línea1\nlínea2", resolved = false },
-        { id = "2", path = "a.ts", lnum = 2, end_lnum = 2, text = "otro", resolved = false },
+        { id = "1", path = "a.ts", lnum = 1, end_lnum = 1, text = "line1\nline2", resolved = false },
+        { id = "2", path = "a.ts", lnum = 2, end_lnum = 2, text = "another", resolved = false },
       }
       local out = md.markdown(list)
-      local n = select(2, out:gsub("\n", "\n")) + 1  -- cantidad de líneas
-      assert.are.equal(2, n)                          -- exactamente 2 líneas numeradas
-      assert.is_truthy(out:match("1%. .*línea1 línea2"))
+      local n = select(2, out:gsub("\n", "\n")) + 1  -- number of lines
+      assert.are.equal(2, n)                          -- exactly 2 numbered lines
+      assert.is_truthy(out:match("1%. .*line1 line2"))
     end)
   end)
 
@@ -116,25 +116,25 @@ describe("features.export.markdown", function()
       state._reset()
     end)
 
-    it("file(core, relpath) delega en state.for_path", function()
+    it("file(core, relpath) delegates to state.for_path", function()
       local core = { state = state }
-      state.add({ path = "a.ts", lnum = 1, text = "solo a" })
-      state.add({ path = "b.ts", lnum = 1, text = "solo b" })
+      state.add({ path = "a.ts", lnum = 1, text = "only a" })
+      state.add({ path = "b.ts", lnum = 1, text = "only b" })
       local out = md.file(core, "a.ts")
-      assert.is_truthy(out:match("solo a"))
-      assert.is_falsy(out:match("solo b"))
+      assert.is_truthy(out:match("only a"))
+      assert.is_falsy(out:match("only b"))
     end)
 
-    it("all(core) delega en state.all", function()
+    it("all(core) delegates to state.all", function()
       local core = { state = state }
-      state.add({ path = "a.ts", lnum = 1, text = "solo a" })
-      state.add({ path = "b.ts", lnum = 1, text = "solo b" })
+      state.add({ path = "a.ts", lnum = 1, text = "only a" })
+      state.add({ path = "b.ts", lnum = 1, text = "only b" })
       local out = md.all(core)
-      assert.is_truthy(out:match("solo a"))
-      assert.is_truthy(out:match("solo b"))
+      assert.is_truthy(out:match("only a"))
+      assert.is_truthy(out:match("only b"))
     end)
 
-    it("all(core) sin comentarios devuelve string vacío", function()
+    it("all(core) without comments returns an empty string", function()
       local core = { state = state }
       assert.are.equal("", md.all(core))
     end)
@@ -142,12 +142,12 @@ describe("features.export.markdown", function()
 end)
 ```
 
-- [ ] **Step 2: Correr y ver fallar**
+- [ ] **Step 2: Run and watch it fail**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/export/markdown_spec.lua" -c "qa"`
 Expected: FAIL ("module 'review.features.export.markdown' not found").
 
-- [ ] **Step 3: Implementar `lua/review/features/export/markdown.lua`**
+- [ ] **Step 3: Implement `lua/review/features/export/markdown.lua`**
 
 ```lua
 local M = {}
@@ -159,16 +159,16 @@ local function anchor(c)
   return string.format("`%s:%d`", c.path, c.lnum)
 end
 
--- Colapsa saltos de línea del texto del comentario a un espacio: cada comentario
--- DEBE ocupar exactamente una línea numerada, o `table.concat("\n")` rompería la
--- numeración del markdown agent-ready.
+-- Collapses line breaks in the comment text into a space: each comment
+-- must take exactly one numbered line, or `table.concat("\n")` would break the
+-- numbering of the agent-ready markdown.
 local function oneline(text)
   return ((text or ""):gsub("[\r\n]+", " "))
 end
 
---- Formatea una lista de comentarios a markdown numerado, agent-ready.
---- Excluye los comentarios resueltos. Devuelve "" si no queda ninguno.
---- @param list table[] lista de comment (id, path, lnum, end_lnum, text, resolved, ...)
+--- Formats a list of comments as agent-ready numbered markdown.
+--- Excludes resolved comments. Returns "" if none are left.
+--- @param list table[] list of comment (id, path, lnum, end_lnum, text, resolved, ...)
 --- @return string
 function M.markdown(list)
   list = list or {}
@@ -184,16 +184,16 @@ function M.markdown(list)
   return table.concat(lines, "\n")
 end
 
---- Markdown de los comentarios de un solo archivo.
---- @param core table tabla core (usa core.state.for_path)
---- @param relpath string path relativo a la raíz git
+--- Markdown of the comments of a single file.
+--- @param core table core table (uses core.state.for_path)
+--- @param relpath string path relative to the git root
 --- @return string
 function M.file(core, relpath)
   return M.markdown(core.state.for_path(relpath))
 end
 
---- Markdown de todos los comentarios del repo.
---- @param core table tabla core (usa core.state.all)
+--- Markdown of all the comments in the repo.
+--- @param core table core table (uses core.state.all)
 --- @return string
 function M.all(core)
   return M.markdown(core.state.all())
@@ -202,7 +202,7 @@ end
 return M
 ```
 
-- [ ] **Step 4: Correr y ver pasar**
+- [ ] **Step 4: Run and watch it pass**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/export/markdown_spec.lua" -c "qa"`
 Expected: PASS (10).
@@ -211,21 +211,21 @@ Expected: PASS (10).
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(export/markdown): formateo agent-ready con anclas path:lnum"
+git commit -q -m "feat(export/markdown): agent-ready formatting with path:lnum anchors"
 ```
 
 ---
 
-### Task 2: `features/export/commands.lua` — comandos de yank
+### Task 2: `features/export/commands.lua` — yank commands
 
 **Files:**
 - Create: `lua/review/features/export/commands.lua`, `tests/export/commands_spec.lua`
 
 **Interfaces:**
-- Consumes: `core.git.rel_path(bufnr)`, `core.state.*` (vía `markdown.lua`, Task 1).
-- Produces: `commands.setup(core, opts)` — registra `:ReviewYankFile`/`:Ryf`, `:ReviewYankAll`/`:Rya` y los keymaps `<leader>rf`/`<leader>ra` (prefijo `opts.leader or "<leader>r"`).
+- Consumes: `core.git.rel_path(bufnr)`, `core.state.*` (via `markdown.lua`, Task 1).
+- Produces: `commands.setup(core, opts)` — registers `:ReviewYankFile`/`:Ryf`, `:ReviewYankAll`/`:Rya` and the keymaps `<leader>rf`/`<leader>ra` (prefix `opts.leader or "<leader>r"`).
 
-- [ ] **Step 1: Test que falla — `tests/export/commands_spec.lua`**
+- [ ] **Step 1: Failing test — `tests/export/commands_spec.lua`**
 
 ```lua
 local store = require("review.core.store")
@@ -248,7 +248,7 @@ describe("features.export.commands", function()
     pcall(vim.api.nvim_del_user_command, "Rya")
   end)
 
-  it("registra comandos y alias", function()
+  it("registers commands and aliases", function()
     commands.setup(core, {})
     local cmds = vim.api.nvim_get_commands({})
     assert.is_truthy(cmds["ReviewYankFile"])
@@ -257,10 +257,10 @@ describe("features.export.commands", function()
     assert.is_truthy(cmds["Rya"])
   end)
 
-  it(":ReviewYankFile copia solo los comentarios del archivo actual al registro +", function()
+  it(":ReviewYankFile copies only the comments of the current file to the + register", function()
     commands.setup(core, {})
-    state.add({ path = "a.ts", lnum = 1, text = "de a" })
-    state.add({ path = "b.ts", lnum = 1, text = "de b" })
+    state.add({ path = "a.ts", lnum = 1, text = "from a" })
+    state.add({ path = "b.ts", lnum = 1, text = "from b" })
 
     local buf = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_buf_set_name(buf, tmp .. "/a.ts")
@@ -268,42 +268,42 @@ describe("features.export.commands", function()
 
     vim.cmd("ReviewYankFile")
     local reg = vim.fn.getreg("+")
-    assert.is_truthy(reg:match("de a"))
-    assert.is_falsy(reg:match("de b"))
+    assert.is_truthy(reg:match("from a"))
+    assert.is_falsy(reg:match("from b"))
   end)
 
-  it(":ReviewYankAll copia todos los comentarios al registro +", function()
+  it(":ReviewYankAll copies all the comments to the + register", function()
     commands.setup(core, {})
-    state.add({ path = "a.ts", lnum = 1, text = "de a" })
-    state.add({ path = "b.ts", lnum = 1, text = "de b" })
+    state.add({ path = "a.ts", lnum = 1, text = "from a" })
+    state.add({ path = "b.ts", lnum = 1, text = "from b" })
 
     vim.cmd("ReviewYankAll")
     local reg = vim.fn.getreg("+")
-    assert.is_truthy(reg:match("de a"))
-    assert.is_truthy(reg:match("de b"))
+    assert.is_truthy(reg:match("from a"))
+    assert.is_truthy(reg:match("from b"))
   end)
 
-  it(":ReviewYankFile con buffer fuera del repo no rompe y no toca el registro", function()
+  it(":ReviewYankFile with a buffer outside the repo does not break and does not touch the register", function()
     commands.setup(core, {})
-    state.add({ path = "a.ts", lnum = 1, text = "de a" })
+    state.add({ path = "a.ts", lnum = 1, text = "from a" })
 
     local buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_name(buf, "/otro/lugar/x.ts")
+    vim.api.nvim_buf_set_name(buf, "/other/place/x.ts")
     vim.api.nvim_set_current_buf(buf)
 
-    vim.fn.setreg("+", "sin-tocar")
+    vim.fn.setreg("+", "untouched")
     assert.has_no.errors(function() vim.cmd("ReviewYankFile") end)
-    assert.are.equal("sin-tocar", vim.fn.getreg("+"))
+    assert.are.equal("untouched", vim.fn.getreg("+"))
   end)
 
-  it(":ReviewYankAll con lista vacía notifica y no rompe", function()
+  it(":ReviewYankAll with an empty list notifies and does not break", function()
     commands.setup(core, {})
-    vim.fn.setreg("+", "sin-tocar")
+    vim.fn.setreg("+", "untouched")
     assert.has_no.errors(function() vim.cmd("ReviewYankAll") end)
-    assert.are.equal("sin-tocar", vim.fn.getreg("+"))
+    assert.are.equal("untouched", vim.fn.getreg("+"))
   end)
 
-  it("respeta opts.leader en los keymaps", function()
+  it("respects opts.leader in the keymaps", function()
     commands.setup(core, { leader = "<leader>z" })
     local found = {}
     for _, m in ipairs(vim.api.nvim_get_keymap("n")) do
@@ -316,12 +316,12 @@ describe("features.export.commands", function()
 end)
 ```
 
-- [ ] **Step 2: Correr y ver fallar**
+- [ ] **Step 2: Run and watch it fail**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/export/commands_spec.lua" -c "qa"`
 Expected: FAIL ("module 'review.features.export.commands' not found").
 
-- [ ] **Step 3: Implementar `lua/review/features/export/commands.lua`**
+- [ ] **Step 3: Implement `lua/review/features/export/commands.lua`**
 
 ```lua
 local markdown = require("review.features.export.markdown")
@@ -330,17 +330,17 @@ local M = {}
 
 local function yank(text)
   if not text or text == "" then
-    vim.notify("review.nvim: sin comentarios", vim.log.levels.INFO)
+    vim.notify("review.nvim: no comments", vim.log.levels.INFO)
     return
   end
   vim.fn.setreg("+", text)
-  vim.notify("review.nvim: comentarios copiados al registro +", vim.log.levels.INFO)
+  vim.notify("review.nvim: comments copied to the + register", vim.log.levels.INFO)
 end
 
 local function yank_file(core)
   local relpath = core.git.rel_path(0)
   if not relpath then
-    vim.notify("review.nvim: el buffer actual no pertenece al repo", vim.log.levels.WARN)
+    vim.notify("review.nvim: the current buffer does not belong to the repo", vim.log.levels.WARN)
     return
   end
   yank(markdown.file(core, relpath))
@@ -366,7 +366,7 @@ end
 return M
 ```
 
-- [ ] **Step 4: Correr y ver pasar**
+- [ ] **Step 4: Run and watch it pass**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/export/commands_spec.lua" -c "qa"`
 Expected: PASS (6).
@@ -380,20 +380,20 @@ git commit -q -m "feat(export/commands): ReviewYankFile/ReviewYankAll + keymaps"
 
 ---
 
-### Task 3: `features/export/init.lua` — entrypoint + auto-registro
+### Task 3: `features/export/init.lua` — entry point + self-registration
 
 **Files:**
 - Create: `lua/review/features/export/init.lua`, `tests/export/init_spec.lua`
 
 **Interfaces:**
 - Consumes: `commands` (Task 2), `core.registry.register` (`00-core.md` Task 1).
-- Produces: `M.setup(core, opts)` (delega en `commands.setup`); al `require`, la feature se auto-registra en `core.registry` como `{ name = "export", setup = M.setup }`.
+- Produces: `M.setup(core, opts)` (delegates to `commands.setup`); on `require`, the feature self-registers in `core.registry` as `{ name = "export", setup = M.setup }`.
 
-- [ ] **Step 1: Test que falla — `tests/export/init_spec.lua`**
+- [ ] **Step 1: Failing test — `tests/export/init_spec.lua`**
 
 ```lua
 describe("features.export.init", function()
-  it("se auto-registra en core.registry al requerirse", function()
+  it("self-registers in core.registry when required", function()
     local core = require("review.core")
     require("review.features.export")
     local features = core.registry.features()
@@ -401,7 +401,7 @@ describe("features.export.init", function()
     assert.is_function(features["export"].setup)
   end)
 
-  it("M.setup delega en commands.setup y no rompe sin opts", function()
+  it("M.setup delegates to commands.setup and does not break without opts", function()
     local export = require("review.features.export")
     local store = require("review.core.store")
     local tmp = vim.fn.tempname(); vim.fn.mkdir(tmp, "p")
@@ -416,21 +416,21 @@ describe("features.export.init", function()
 end)
 ```
 
-- [ ] **Step 2: Correr y ver fallar**
+- [ ] **Step 2: Run and watch it fail**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/export/init_spec.lua" -c "qa"`
 Expected: FAIL ("module 'review.features.export' not found").
 
-- [ ] **Step 3: Implementar `lua/review/features/export/init.lua`**
+- [ ] **Step 3: Implement `lua/review/features/export/init.lua`**
 
 ```lua
 local commands = require("review.features.export.commands")
 
 local M = {}
 
---- Entrypoint de la feature export. Registra comandos y keymaps.
---- @param core table tabla core (git, store, state, ns, events, registry)
---- @param opts table opciones de la feature (leader, etc.)
+--- Entry point of the export feature. Registers commands and keymaps.
+--- @param core table core table (git, store, state, ns, events, registry)
+--- @param opts table feature options (leader, etc.)
 function M.setup(core, opts)
   commands.setup(core, opts or {})
 end
@@ -440,12 +440,12 @@ require("review.core").registry.register({ name = "export", setup = M.setup })
 return M
 ```
 
-- [ ] **Step 4: Correr y ver pasar**
+- [ ] **Step 4: Run and watch it pass**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/export/init_spec.lua" -c "qa"`
 Expected: PASS (2).
 
-- [ ] **Step 5: Suite completa de export**
+- [ ] **Step 5: Full export suite**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedDirectory tests/export/ {minimal_init='tests/minimal_init.lua'}" -c "qa"`
 Expected: PASS (markdown 10, commands 6, init 2).
@@ -454,17 +454,16 @@ Expected: PASS (markdown 10, commands 6, init 2).
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(export): entrypoint init.lua + auto-registro en core.registry"
+git commit -q -m "feat(export): init.lua entrypoint + self-registration in core.registry"
 ```
 
 ---
 
 ## Self-Review
 
-- **Cobertura del contrato (DESIGN.md tabla Features → export):** `markdown` agent-ready ✅ (T1), `:ReviewYankFile`/`:Ryf` ✅ (T2), `:ReviewYankAll`/`:Rya` ✅ (T2). Dependencia declarada `state.*` ✅ (T1 vía `for_path`/`all`), más `git.rel_path` usado solo dentro de `commands.lua` para resolver el archivo actual — no viola "depende solo del contrato del core", ya que `git` también es parte del contrato del core.
-- **Regla de no-dependencia cruzada:** ningún `require("review.features.<otra>")` en todo el slice; solo `require("review.core")` y submódulos internos de `export`.
-- **Edge cases cubiertos:** lista vacía → `""` sin header suelto (T1, tests "lista vacía" y "todo resuelto"); resueltos excluidos (T1); rango `end_lnum == lnum` se muestra sin sufijo `-end_lnum` (T1, test "línea simple"); rango real `end_lnum > lnum` (T1, test "rango"); buffer fuera del repo (`rel_path` nil) → `vim.notify` + no-op, sin tocar el registro (T2, test "buffer fuera del repo"); lista vacía en comandos → notifica "sin comentarios" y no rompe (T2, test "lista vacía notifica").
-- **Placeholders:** ninguno; todo el código Lua está completo y es el que se espera correr tal cual.
-- **Consistencia de firmas:** `markdown.markdown(list)`, `markdown.file(core, relpath)`, `markdown.all(core)` (usan `core.state.for_path`/`core.state.all` tal como en el contrato); `commands.setup(core, opts)`; `M.setup(core, opts)` en `init.lua` con auto-registro `core.registry.register({ name = "export", setup = M.setup })`, igual al patrón de `00-core.md`.
-- **Storage:** esta feature no toca `core.store` directamente (correcto: export es solo lectura de `state` + formateo + registro de Neovim, ningún I/O de disco propio).
-</content>
+- **Contract coverage (DESIGN.md Features table → export):** agent-ready `markdown` ✅ (T1), `:ReviewYankFile`/`:Ryf` ✅ (T2), `:ReviewYankAll`/`:Rya` ✅ (T2). Declared dependency `state.*` ✅ (T1 via `for_path`/`all`), plus `git.rel_path` used only inside `commands.lua` to resolve the current file — this does not violate "depends only on the core contract", since `git` is also part of the core contract.
+- **No-cross-dependency rule:** no `require("review.features.<other>")` in the whole slice; only `require("review.core")` and internal `export` submodules.
+- **Edge cases covered:** empty list → `""` without a stray header (T1, tests "empty list" and "everything resolved"); resolved ones excluded (T1); range with `end_lnum == lnum` is shown without the `-end_lnum` suffix (T1, test "single line"); real range `end_lnum > lnum` (T1, test "range"); buffer outside the repo (`rel_path` nil) → `vim.notify` + no-op, without touching the register (T2, test "buffer outside the repo"); empty list in commands → notifies "no comments" and does not break (T2, test "empty list notifies").
+- **Placeholders:** none; all the Lua code is complete and is meant to be run as is.
+- **Signature consistency:** `markdown.markdown(list)`, `markdown.file(core, relpath)`, `markdown.all(core)` (they use `core.state.for_path`/`core.state.all` exactly as in the contract); `commands.setup(core, opts)`; `M.setup(core, opts)` in `init.lua` with self-registration `core.registry.register({ name = "export", setup = M.setup })`, same as the pattern in `00-core.md`.
+- **Storage:** this feature does not touch `core.store` directly (correct: export is only a read of `state` + formatting + a Neovim register, with no disk I/O of its own).

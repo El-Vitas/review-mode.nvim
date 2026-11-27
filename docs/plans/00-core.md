@@ -1,28 +1,28 @@
 # review.nvim — Plan 00: Core (foundation)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development o superpowers:executing-plans. Steps con checkbox (`- [ ]`).
-> **Plan maestro:** `~/Dev/nvim/review.nvim/DESIGN.md` — este plan implementa la sección "Contrato del core". Toda firma aquí DEBE coincidir con ese contrato.
+> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development or superpowers:executing-plans. Steps use checkboxes (`- [ ]`).
+> **Master plan:** `~/Dev/nvim/review.nvim/DESIGN.md` — this plan implements the "`core` contract" section. Every signature here **must** match that contract.
 
-**Goal:** Construir el kernel compartido `review.core` (git, store, state, ns, events, registry) + `review.init` + harness de tests. Es la única dependencia de las features y las desbloquea para trabajarse en paralelo.
+**Goal:** Build the shared kernel `review.core` (git, store, state, ns, events, registry) + `review.init` + test harness. It is the only dependency of the features and unblocks them to be worked on in parallel.
 
-**Architecture:** Módulos Lua bajo `lua/review/core/`. `store` es la única puerta al filesystem; `state` es la fuente de verdad en memoria y emite eventos; `events` desacopla features; `registry` monta features vía `setup(core, opts)`.
+**Architecture:** Lua modules under `lua/review/core/`. `store` is the only door to the filesystem; `state` is the in-memory source of truth and emits events; `events` decouples features; `registry` mounts features via `setup(core, opts)`.
 
-**Tech Stack:** Lua, Neovim ≥ 0.10, plenary.nvim (tests busted).
+**Tech Stack:** Lua, Neovim ≥ 0.10, plenary.nvim (busted tests).
 
 ## Global Constraints
 
 - Neovim ≥ 0.10 (`vim.uv`, `vim.json`, extmarks `virt_lines`).
-- Lua puro, sin build step, cargable por lazy.nvim.
-- Comentarios SOLO en `<repo>/.git/review.nvim/comments.json`, nunca en el código.
-- `path` de comentario = relativo a la raíz git.
+- Pure Lua, no build step, loadable by lazy.nvim.
+- Comments **only** in `<repo>/.git/review.nvim/comments.json`, never in the code.
+- Comment `path` = relative to the git root.
 - Namespaces: `review.nvim/comments`, `review.nvim/views`.
-- TODO el I/O de disco pasa por `core.store`.
-- Features dependen SOLO de `require("review.core")`; jamás de otra feature. Coordinación por `core.events`.
+- **All** disk I/O goes through `core.store`.
+- Features depend **only** on `require("review.core")`; never on another feature. Coordination through `core.events`.
 - Tests: `nvim --headless -c "PlenaryBustedDirectory tests/ {minimal_init='tests/minimal_init.lua'}" -c "qa"`.
 
 ---
 
-### Task 1: Esqueleto + harness + registry/core stub
+### Task 1: Skeleton + harness + registry/core stub
 
 **Files:**
 - Create: `.gitignore`, `tests/minimal_init.lua`
@@ -30,8 +30,8 @@
 
 **Interfaces:**
 - Produces:
-  - `core.registry.register({ name, setup })`, `core.registry.features()` → lista, `core.registry.setup(core, opts)`.
-  - `require("review.core")` → tabla `{ registry }` (se irá completando).
+  - `core.registry.register({ name, setup })`, `core.registry.features()` → list, `core.registry.setup(core, opts)`.
+  - `require("review.core")` → table `{ registry }` (it will be completed as we go).
   - `require("review").setup(opts)`.
 
 - [ ] **Step 1: `.gitignore`**
@@ -56,7 +56,7 @@ local M = {}
 local _features = {}
 
 function M.register(feature)
-  assert(feature and feature.name and feature.setup, "feature inválida")
+  assert(feature and feature.name and feature.setup, "invalid feature")
   _features[feature.name] = feature
 end
 
@@ -64,14 +64,14 @@ function M.features()
   return _features
 end
 
--- Limpia el registro de features. Para tests (evita que features reales
--- auto-registradas por otros specs contaminen un test del registry).
+-- Clears the feature registry. For tests (prevents real features
+-- auto-registered by other specs from contaminating a registry test).
 function M._reset()
   _features = {}
 end
 
--- Propaga el `leader` global a cada feature (salvo que la feature tenga uno
--- propio). Sin esto, los keymaps de las features nunca ven el leader global.
+-- Propagates the global `leader` to each feature (unless the feature has its
+-- own). Without this, the features' keymaps would never see the global leader.
 function M.setup(core, opts)
   opts = opts or {}
   local fopts = opts.features or {}
@@ -88,15 +88,15 @@ end
 return M
 ```
 
-> **Contrato para las features:** `feature.setup(core, cfg)` recibe SIEMPRE `cfg.leader`
-> (el global o el propio). Los keymaps deben usar `cfg.leader .. "x"`, nunca el literal
-> `"<leader>rx"`. Los `cnoreabbrev` de alias en minúscula NO van en la feature: se centralizan
-> en `plugin/review.lua` (Task 7).
+> **Contract for features:** `feature.setup(core, cfg)` **always** receives `cfg.leader`
+> (the global one or its own). Keymaps must use `cfg.leader .. "x"`, never the literal
+> `"<leader>rx"`. The lowercase alias `cnoreabbrev`s do **not** go in the feature: they are centralized
+> in `plugin/review.lua` (Task 7).
 
 - [ ] **Step 4: `lua/review/core/init.lua`**
 
 ```lua
--- El core se ensambla acá. Cada submódulo se agrega en su Task.
+-- The core is assembled here. Each submodule is added in its Task.
 local M = {
   registry = require("review.core.registry"),
 }
@@ -112,37 +112,37 @@ M.config = { leader = "<leader>r" }
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
   local core = require("review.core")
-  -- Las features se auto-registran al requerirse (se agregan en sus planes).
+  -- Features self-register when required (they are added in their plans).
   core.registry.setup(core, M.config)
 end
 
 return M
 ```
 
-- [ ] **Step 6: Verificar carga**
+- [ ] **Step 6: Verify loading**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "lua require('review').setup()" -c "qa"`
-Expected: exit 0, sin errores.
+Expected: exit 0, no errors.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git init -q 2>/dev/null; git add -A
-git commit -q -m "chore(core): esqueleto, registry y harness de tests"
+git commit -q -m "chore(core): skeleton, registry and test harness"
 ```
 
 ---
 
-### Task 2: `core/store.lua` — persistencia JSON
+### Task 2: `core/store.lua` — JSON persistence
 
 **Files:**
 - Create: `lua/review/core/store.lua`, `tests/core/store_spec.lua`
-- Modify: `lua/review/core/init.lua` (exponer `store`)
+- Modify: `lua/review/core/init.lua` (expose `store`)
 
 **Interfaces:**
-- Produces: `store.root_fn()` (override en tests), `store.path()`, `store.load()`, `store.save(data)`.
+- Produces: `store.root_fn()` (override in tests), `store.path()`, `store.load()`, `store.save(data)`.
 
-- [ ] **Step 1: Test que falla — `tests/core/store_spec.lua`**
+- [ ] **Step 1: Failing test — `tests/core/store_spec.lua`**
 
 ```lua
 local store = require("review.core.store")
@@ -154,7 +154,7 @@ describe("core.store", function()
     store.root_fn = function() return tmp end
   end)
 
-  it("vacío si no hay archivo", function()
+  it("empty if there is no file", function()
     assert.are.same({}, store.load().comments)
   end)
 
@@ -165,18 +165,18 @@ describe("core.store", function()
     assert.are.equal("h", d.comments[1].text)
   end)
 
-  it("path dentro de .git/review.nvim", function()
+  it("path inside .git/review.nvim", function()
     assert.is_truthy(store.path():match("%.git/review%.nvim/comments%.json$"))
   end)
 end)
 ```
 
-- [ ] **Step 2: Correr y ver fallar**
+- [ ] **Step 2: Run and watch it fail**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/core/store_spec.lua" -c "qa"`
 Expected: FAIL ("module 'review.core.store' not found").
 
-- [ ] **Step 3: Implementar `lua/review/core/store.lua`**
+- [ ] **Step 3: Implement `lua/review/core/store.lua`**
 
 ```lua
 local M = {}
@@ -221,7 +221,7 @@ end
 return M
 ```
 
-- [ ] **Step 4: Exponer en `core/init.lua`**
+- [ ] **Step 4: Expose in `core/init.lua`**
 
 ```lua
 local M = {
@@ -231,7 +231,7 @@ local M = {
 return M
 ```
 
-- [ ] **Step 5: Correr y ver pasar**
+- [ ] **Step 5: Run and watch it pass**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/core/store_spec.lua" -c "qa"`
 Expected: PASS (3).
@@ -240,12 +240,12 @@ Expected: PASS (3).
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(core/store): persistencia JSON en .git/review.nvim"
+git commit -q -m "feat(core/store): JSON persistence in .git/review.nvim"
 ```
 
 ---
 
-### Task 3: `core/git.lua` — utilidades git
+### Task 3: `core/git.lua` — git utilities
 
 **Files:**
 - Create: `lua/review/core/git.lua`, `tests/core/git_spec.lua`
@@ -253,19 +253,19 @@ git commit -q -m "feat(core/store): persistencia JSON en .git/review.nvim"
 
 **Interfaces:**
 - Produces:
-  - `git.root()` → `string|nil` (usa `store.root_fn` para ser testeable/coherente).
+  - `git.root()` → `string|nil` (uses `store.root_fn` to be testable/consistent).
   - `git.rel_path(bufnr)` → `string|nil`.
   - `git.head_content(relpath)` → `string[]|nil` (`git show HEAD:relpath`).
   - `git.changed_files()` → `string[]` (`git diff --name-only HEAD` ∪ untracked).
 
-- [ ] **Step 1: Test que falla — `tests/core/git_spec.lua`** (parte pura: `rel_path`)
+- [ ] **Step 1: Failing test — `tests/core/git_spec.lua`** (pure part: `rel_path`)
 
 ```lua
 local store = require("review.core.store")
 local git = require("review.core.git")
 
 describe("core.git.rel_path", function()
-  it("devuelve path relativo a la raíz", function()
+  it("returns a path relative to the root", function()
     local root = vim.fn.tempname(); vim.fn.mkdir(root .. "/src", "p")
     store.root_fn = function() return root end
     local buf = vim.api.nvim_create_buf(false, true)
@@ -273,21 +273,21 @@ describe("core.git.rel_path", function()
     assert.are.equal("src/foo.ts", git.rel_path(buf))
   end)
 
-  it("nil si el buffer está fuera de la raíz", function()
+  it("nil if the buffer is outside the root", function()
     store.root_fn = function() return vim.fn.tempname() end
     local buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_name(buf, "/otro/lugar/x.ts")
+    vim.api.nvim_buf_set_name(buf, "/other/place/x.ts")
     assert.is_nil(git.rel_path(buf))
   end)
 end)
 ```
 
-- [ ] **Step 2: Correr y ver fallar**
+- [ ] **Step 2: Run and watch it fail**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/core/git_spec.lua" -c "qa"`
 Expected: FAIL ("module 'review.core.git' not found").
 
-- [ ] **Step 3: Implementar `lua/review/core/git.lua`**
+- [ ] **Step 3: Implement `lua/review/core/git.lua`**
 
 ```lua
 local store = require("review.core.store")
@@ -333,9 +333,9 @@ end
 return M
 ```
 
-- [ ] **Step 4: Exponer en `core/init.lua`** (agregar `git = require("review.core.git"),`)
+- [ ] **Step 4: Expose in `core/init.lua`** (add `git = require("review.core.git"),`)
 
-- [ ] **Step 5: Correr y ver pasar**
+- [ ] **Step 5: Run and watch it pass**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/core/git_spec.lua" -c "qa"`
 Expected: PASS (2).
@@ -357,10 +357,10 @@ git commit -q -m "feat(core/git): root, rel_path, head_content, changed_files"
 
 **Interfaces:**
 - Produces:
-  - `events.on(name, cb)`, `events.emit(name, payload)` (protegido, `vim.schedule`).
-  - `ns.comments`, `ns.views` (ids de namespace).
+  - `events.on(name, cb)`, `events.emit(name, payload)` (protected, `vim.schedule`).
+  - `ns.comments`, `ns.views` (namespace ids).
 
-- [ ] **Step 1: Test que falla — `tests/core/events_spec.lua`**
+- [ ] **Step 1: Failing test — `tests/core/events_spec.lua`**
 
 ```lua
 local events = require("review.core.events")
@@ -368,7 +368,7 @@ local events = require("review.core.events")
 describe("core.events", function()
   before_each(function() events._reset() end)
 
-  it("on/emit entrega el payload", function()
+  it("on/emit delivers the payload", function()
     local got
     events.on("x:test", function(p) got = p.v end)
     events.emit("x:test", { v = 42 })
@@ -376,7 +376,7 @@ describe("core.events", function()
     assert.are.equal(42, got)
   end)
 
-  it("_reset limpia las suscripciones", function()
+  it("_reset clears the subscriptions", function()
     local calls = 0
     events.on("x:test", function() calls = calls + 1 end)
     events._reset()
@@ -387,12 +387,12 @@ describe("core.events", function()
 end)
 ```
 
-- [ ] **Step 2: Correr y ver fallar**
+- [ ] **Step 2: Run and watch it fail**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/core/events_spec.lua" -c "qa"`
 Expected: FAIL ("module 'review.core.events' not found").
 
-- [ ] **Step 3: Implementar `lua/review/core/events.lua`**
+- [ ] **Step 3: Implement `lua/review/core/events.lua`**
 
 ```lua
 local M = {}
@@ -412,8 +412,8 @@ function M.emit(name, payload)
   end
 end
 
--- Limpia todas las suscripciones. Necesario en tests para evitar fuga de
--- estado entre casos (los `subs` son module-local y persisten entre `it`).
+-- Clears all subscriptions. Needed in tests to avoid state leaking
+-- between cases (`subs` is module-local and persists across `it` blocks).
 function M._reset()
   subs = {}
 end
@@ -421,7 +421,7 @@ end
 return M
 ```
 
-- [ ] **Step 4: Implementar `lua/review/core/ns.lua`**
+- [ ] **Step 4: Implement `lua/review/core/ns.lua`**
 
 ```lua
 return {
@@ -430,9 +430,9 @@ return {
 }
 ```
 
-- [ ] **Step 5: Exponer en `core/init.lua`** (agregar `events = require("review.core.events"), ns = require("review.core.ns"),`)
+- [ ] **Step 5: Expose in `core/init.lua`** (add `events = require("review.core.events"), ns = require("review.core.ns"),`)
 
-- [ ] **Step 6: Correr y ver pasar**
+- [ ] **Step 6: Run and watch it pass**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/core/events_spec.lua" -c "qa"`
 Expected: PASS (1).
@@ -441,12 +441,12 @@ Expected: PASS (1).
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(core): events pub/sub + namespaces de extmarks"
+git commit -q -m "feat(core): events pub/sub + extmark namespaces"
 ```
 
 ---
 
-### Task 5: `core/state.lua` — fuente de verdad + eventos
+### Task 5: `core/state.lua` — source of truth + events
 
 **Files:**
 - Create: `lua/review/core/state.lua`, `tests/core/state_spec.lua`
@@ -454,9 +454,9 @@ git commit -q -m "feat(core): events pub/sub + namespaces de extmarks"
 
 **Interfaces:**
 - Consumes: `store` (Task 2), `events` (Task 4).
-- Produces: `state.all()`, `state.for_path(p)`, `state.by_id(id)`, `state.add(c)`, `state.remove(id)`, `state.update(id, fields)`, `state.load()`, `state.persist()`. `add/remove/update` emiten `comments:changed`.
+- Produces: `state.all()`, `state.for_path(p)`, `state.by_id(id)`, `state.add(c)`, `state.remove(id)`, `state.update(id, fields)`, `state.load()`, `state.persist()`. `add/remove/update` emit `comments:changed`.
 
-- [ ] **Step 1: Test que falla — `tests/core/state_spec.lua`**
+- [ ] **Step 1: Failing test — `tests/core/state_spec.lua`**
 
 ```lua
 local store = require("review.core.store")
@@ -470,7 +470,7 @@ describe("core.state", function()
     state._reset()
   end)
 
-  it("add asigna defaults y emite comments:changed", function()
+  it("add assigns defaults and emits comments:changed", function()
     local fired = false
     events.on("comments:changed", function() fired = true end)
     local c = state.add({ path = "a.ts", lnum = 5, text = "x" })
@@ -486,7 +486,7 @@ describe("core.state", function()
     assert.are.equal(1, #state.all())
   end)
 
-  it("remove y update por id", function()
+  it("remove and update by id", function()
     local c = state.add({ path = "a.ts", lnum = 1, text = "x" })
     assert.is_true(state.update(c.id, { resolved = true }))
     assert.is_true(state.by_id(c.id).resolved)
@@ -494,7 +494,7 @@ describe("core.state", function()
     assert.are.equal(0, #state.all())
   end)
 
-  it("for_path filtra", function()
+  it("for_path filters", function()
     state.add({ path = "a.ts", lnum = 1, text = "x" })
     state.add({ path = "b.ts", lnum = 1, text = "y" })
     assert.are.equal(1, #state.for_path("a.ts"))
@@ -502,12 +502,12 @@ describe("core.state", function()
 end)
 ```
 
-- [ ] **Step 2: Correr y ver fallar**
+- [ ] **Step 2: Run and watch it fail**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/core/state_spec.lua" -c "qa"`
 Expected: FAIL ("module 'review.core.state' not found").
 
-- [ ] **Step 3: Implementar `lua/review/core/state.lua`**
+- [ ] **Step 3: Implement `lua/review/core/state.lua`**
 
 ```lua
 local store = require("review.core.store")
@@ -516,9 +516,9 @@ local events = require("review.core.events")
 local M = {}
 local list = {}
 
--- Id robusto: seed una vez con hrtime (evita colisiones cuando se agregan
--- muchos comentarios en el mismo segundo, ej. el agente en lote) + contador
--- monotónico + aleatorio.
+-- Robust id: seed once with hrtime (avoids collisions when many comments are
+-- added within the same second, e.g. the agent in a batch) + a monotonic
+-- counter + a random value.
 local _seeded = false
 local _counter = 0
 local function uuid()
@@ -576,7 +576,7 @@ function M.load()
 end
 
 function M.persist()
-  -- No persistir el campo runtime _extmark_id.
+  -- Do not persist the runtime field _extmark_id.
   local clean = {}
   for _, c in ipairs(list) do
     local copy = {}
@@ -589,9 +589,9 @@ end
 return M
 ```
 
-- [ ] **Step 4: Exponer en `core/init.lua`** (agregar `state = require("review.core.state"),`)
+- [ ] **Step 4: Expose in `core/init.lua`** (add `state = require("review.core.state"),`)
 
-- [ ] **Step 5: Correr y ver pasar**
+- [ ] **Step 5: Run and watch it pass**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/core/state_spec.lua" -c "qa"`
 Expected: PASS (4).
@@ -600,12 +600,12 @@ Expected: PASS (4).
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(core/state): fuente de verdad de comentarios + eventos"
+git commit -q -m "feat(core/state): source of truth for comments + events"
 ```
 
 ---
 
-### Task 6: Cablear `registry.setup` con `state.load` + verificación integral
+### Task 6: Wire `registry.setup` with `state.load` + end-to-end verification
 
 **Files:**
 - Modify: `lua/review/init.lua`
@@ -613,9 +613,9 @@ git commit -q -m "feat(core/state): fuente de verdad de comentarios + eventos"
 
 **Interfaces:**
 - Consumes: `registry` (Task 1), `state` (Task 5).
-- Produces: `review.setup(opts)` que carga estado y monta features registradas con `feature.setup(core, cfg)`.
+- Produces: `review.setup(opts)` that loads state and mounts the registered features with `feature.setup(core, cfg)`.
 
-- [ ] **Step 1: Test que falla — `tests/core/registry_spec.lua`**
+- [ ] **Step 1: Failing test — `tests/core/registry_spec.lua`**
 
 ```lua
 local core = require("review.core")
@@ -623,7 +623,7 @@ local core = require("review.core")
 describe("core.registry.setup", function()
   before_each(function() core.registry._reset() end)
 
-  it("llama setup de features habilitadas y saltea deshabilitadas", function()
+  it("calls setup of enabled features and skips disabled ones", function()
     local called = {}
     core.registry.register({ name = "featA", setup = function() called.a = true end })
     core.registry.register({ name = "featB", setup = function() called.b = true end })
@@ -635,26 +635,26 @@ describe("core.registry.setup", function()
 end)
 ```
 
-- [ ] **Step 2: Correr y ver fallar** (falla si `registry.setup` no respeta `enabled=false`)
+- [ ] **Step 2: Run and watch it fail** (it fails if `registry.setup` does not respect `enabled=false`)
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedFile tests/core/registry_spec.lua" -c "qa"`
-Expected: PASS ya (registry de Task 1 lo cubre). Si falla, revisar Task 1 Step 3.
+Expected: PASS already (the registry from Task 1 covers it). If it fails, review Task 1 Step 3.
 
-- [ ] **Step 3: Asegurar `state.load()` en el arranque — `lua/review/init.lua`**
+- [ ] **Step 3: Ensure `state.load()` at startup — `lua/review/init.lua`**
 
 ```lua
 local M = {}
 M.config = { leader = "<leader>r" }
 
--- Features conocidas. Cada una se auto-registra en core.registry al requerirse.
+-- Known features. Each one self-registers in core.registry when required.
 local FEATURES = { "comments", "export", "views", "sidebar", "agent" }
 
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
   local core = require("review.core")
   core.state.load()
-  -- Cargar features (auto-registro vía require). pcall para no romper durante
-  -- el build incremental cuando una feature todavía no existe.
+  -- Load features (self-registration via require). pcall so as not to break during
+  -- the incremental build when a feature does not exist yet.
   for _, name in ipairs(FEATURES) do
     pcall(require, "review.features." .. name)
   end
@@ -664,7 +664,7 @@ end
 return M
 ```
 
-- [ ] **Step 4: Suite completa del core**
+- [ ] **Step 4: Full core suite**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "PlenaryBustedDirectory tests/ {minimal_init='tests/minimal_init.lua'}" -c "qa"`
 Expected: PASS (store 3, git 2, events 2, state 4, registry 1).
@@ -673,18 +673,18 @@ Expected: PASS (store 3, git 2, events 2, state 4, registry 1).
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(core): cablear setup con carga de estado + registry"
+git commit -q -m "feat(core): wire setup with state loading + registry"
 ```
 
 ---
 
-### Task 7: `plugin/review.lua` — alias en minúscula centralizados
+### Task 7: `plugin/review.lua` — centralized lowercase aliases
 
-Los user-commands nativos van capitalizados (`:Rcm`, `:Ryf`, `:Rya`, `:Rv`, `:Rl`, `:Rs`). Las
-versiones en minúscula (`rcm`, `ryf`, ...) se logran con `cnoreabbrev` **en un solo lugar** — acá,
-NO en cada feature (evita duplicación y mantiene el diseño). Este archivo se carga siempre (dir
-`plugin/`), independientemente de qué features estén habilitadas; los abbrev que apunten a un
-comando inexistente simplemente no hacen nada.
+Native user-commands are capitalized (`:Rcm`, `:Ryf`, `:Rya`, `:Rv`, `:Rl`, `:Rs`). The
+lowercase versions (`rcm`, `ryf`, ...) are achieved with `cnoreabbrev` **in a single place** — here,
+**not** in each feature (avoids duplication and keeps the design). This file is always loaded (`plugin/`
+dir), regardless of which features are enabled; abbrevs that point to a nonexistent
+command simply do nothing.
 
 **Files:**
 - Create: `plugin/review.lua`
@@ -692,11 +692,11 @@ comando inexistente simplemente no hacen nada.
 **Interfaces:**
 - Produces: abbrevs `rcm→Rcm`, `rl→Rl`, `ryf→Ryf`, `rya→Rya`, `rv→Rv`, `rs→Rs`.
 
-- [ ] **Step 1: Crear `plugin/review.lua`**
+- [ ] **Step 1: Create `plugin/review.lua`**
 
 ```lua
--- Alias en minúscula para los comandos de review.nvim (centralizado).
--- Cada feature registra su comando capitalizado en su propio setup.
+-- Lowercase aliases for the review.nvim commands (centralized).
+-- Each feature registers its capitalized command in its own setup.
 vim.cmd([[
   cnoreabbrev rcm Rcm
   cnoreabbrev rl  Rl
@@ -707,23 +707,23 @@ vim.cmd([[
 ]])
 ```
 
-- [ ] **Step 2: Verificar carga**
+- [ ] **Step 2: Verify loading**
 
 Run: `cd ~/Dev/nvim/review.nvim && nvim --headless -c "qa"`
-Expected: exit 0, sin errores.
+Expected: exit 0, no errors.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 cd ~/Dev/nvim/review.nvim && git add -A
-git commit -q -m "feat(core): alias en minúscula centralizados en plugin/review.lua"
+git commit -q -m "feat(core): lowercase aliases centralized in plugin/review.lua"
 ```
 
 ---
 
 ## Self-Review
 
-- **Cobertura del contrato (DESIGN.md):** git ✅ (T3), store ✅ (T2), state ✅ (T5), ns ✅ (T4), events ✅ (T4), registry ✅ (T1/T6), `review.init` ✅ (T1/T6).
-- **Placeholders:** ninguno.
-- **Consistencia:** firmas idénticas al contrato del DESIGN (`state.add/remove/update/all/for_path/by_id/load/persist`, `git.root/rel_path/head_content/changed_files`, `events.on/emit`, `ns.comments/views`, `registry.register/setup`).
-- **Contrato de eventos:** `comments:changed` emitido por `state.add/remove/update` (T5) — las features (sidebar) pueden suscribirse.
+- **Contract coverage (DESIGN.md):** git ✅ (T3), store ✅ (T2), state ✅ (T5), ns ✅ (T4), events ✅ (T4), registry ✅ (T1/T6), `review.init` ✅ (T1/T6).
+- **Placeholders:** none.
+- **Consistency:** signatures identical to the DESIGN contract (`state.add/remove/update/all/for_path/by_id/load/persist`, `git.root/rel_path/head_content/changed_files`, `events.on/emit`, `ns.comments/views`, `registry.register/setup`).
+- **Event contract:** `comments:changed` emitted by `state.add/remove/update` (T5) — features (sidebar) can subscribe.
