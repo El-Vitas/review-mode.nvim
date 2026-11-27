@@ -58,7 +58,7 @@ end
 local function build_options(core, hist_n, filter)
   local out = {
     { header = "special" },
-    { ref = "HEAD", text = "HEAD", info = "último commit" },
+    { ref = "HEAD", text = "HEAD", info = "last commit" },
     { ref = ":", text = "index", info = "staged" },
   }
   local root = core.git.root(vim.api.nvim_get_current_buf()) or core.git.root()
