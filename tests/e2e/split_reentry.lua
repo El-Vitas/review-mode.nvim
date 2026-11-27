@@ -1,7 +1,7 @@
--- Verifica que re-invocar la vista SPLIT (o cambiar de vista) estando ya en
--- split NO se buguea: no duplica ventanas, no deja columnas colgadas en diff,
--- no explota. Corre DENTRO de nvim sobre el repo sintético.
--- Env: REVIEW_E2E_DIR. Imprime "SPLIT ok/FAIL ..." y un TOTAL.
+-- Verifies that re-invoking the SPLIT view (or switching views) while already in
+-- split does NOT misbehave: it does not duplicate windows, leave columns stuck in
+-- diff, or blow up. Runs INSIDE nvim against the synthetic repo.
+-- Env: REVIEW_E2E_DIR. Prints "SPLIT ok/FAIL ..." and a TOTAL.
 local R = assert(os.getenv("REVIEW_E2E_DIR"))
 pcall(vim.api.nvim_del_augroup_by_name, "NeoTreeAutoClose")
 
@@ -19,7 +19,7 @@ local function ck(cond, tag)
   if cond then log("ok   " .. tag) else fails = fails + 1; log("FAIL " .. tag) end
 end
 
--- Cuenta ventanas NORMALES (buftype "") + el scratch HEAD del split en el tab.
+-- Counts NORMAL windows (buftype "") + the split's HEAD scratch in the tab.
 local function count_wins()
   local normal, scratch = 0, 0
   for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
@@ -29,7 +29,7 @@ local function count_wins()
   end
   return normal, scratch
 end
--- ¿Cuántas ventanas del tab están en modo diff?
+-- How many windows of the tab are in diff mode?
 local function count_diff()
   local n = 0
   for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
@@ -38,64 +38,64 @@ local function count_diff()
   return n
 end
 
--- Abrir un archivo CON cambios vs HEAD (para que el split tenga 2 columnas).
--- src/keep.ts tiene un cambio sin commitear en el fixture.
+-- Open a file WITH changes vs HEAD (so the split has 2 columns).
+-- src/keep.ts has an uncommitted change in the fixture.
 core.git.set_base("HEAD") -- base = working tree vs HEAD
 vim.cmd("edit " .. R .. "/src/keep.ts")
 vim.wait(200)
 
--- ── 1. Entrar a split: debe crear el panel HEAD (1 normal + 1 scratch, 2 en diff) ──
+-- ── 1. Enter split: must create the HEAD pane (1 normal + 1 scratch, 2 in diff) ──
 views.set(core, "split"); vim.wait(400)
 do
   local n, s = count_wins()
-  ck(n == 1 and s == 1, "1 split crea 1 panel HEAD (normal=" .. n .. " scratch=" .. s .. ")")
-  ck(count_diff() == 2, "1b ambas columnas en modo diff (diff=" .. count_diff() .. ")")
-  ck(split._session ~= nil, "1c hay sesión de split")
+  ck(n == 1 and s == 1, "1 split creates 1 HEAD pane (normal=" .. n .. " scratch=" .. s .. ")")
+  ck(count_diff() == 2, "1b both columns in diff mode (diff=" .. count_diff() .. ")")
+  ck(split._session ~= nil, "1c there is a split session")
 end
 
--- ── 2. Re-invocar split estando en split: NO-OP, no duplica ventanas ──
+-- ── 2. Re-invoke split while in split: NO-OP, does not duplicate windows ──
 local sess_before = split._session
 views.set(core, "split"); vim.wait(400)
 do
   local n, s = count_wins()
-  ck(n == 1 and s == 1, "2 re-split NO duplica (normal=" .. n .. " scratch=" .. s .. ")")
-  ck(count_diff() == 2, "2b sigue con 2 columnas en diff")
-  ck(split._session == sess_before, "2c misma sesión (no recreó)")
+  ck(n == 1 and s == 1, "2 re-split does NOT duplicate (normal=" .. n .. " scratch=" .. s .. ")")
+  ck(count_diff() == 2, "2b still has 2 columns in diff")
+  ck(split._session == sess_before, "2c same session (not recreated)")
 end
 
--- ── 3. Re-invocar por el KEYMAP directo (<leader>rs) estando en split ──
+-- ── 3. Re-invoke through the direct KEYMAP (<leader>rs) while in split ──
 vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<leader>rs", true, false, true), "x", false)
 vim.wait(400)
 do
   local n, s = count_wins()
-  ck(n == 1 and s == 1, "3 <leader>rs en split NO duplica (normal=" .. n .. " scratch=" .. s .. ")")
+  ck(n == 1 and s == 1, "3 <leader>rs in split does NOT duplicate (normal=" .. n .. " scratch=" .. s .. ")")
 end
 
--- ── 4. split → inline: teardown limpio (0 scratch, 0 diff) ──
+-- ── 4. split → inline: clean teardown (0 scratch, 0 diff) ──
 views.set(core, "inline"); vim.wait(400)
 do
   local n, s = count_wins()
-  ck(s == 0, "4 inline cierra el panel HEAD (scratch=" .. s .. ")")
-  ck(count_diff() == 0, "4b sin ventanas en diff tras salir de split")
-  ck(split._session == nil, "4c sesión liberada")
+  ck(s == 0, "4 inline closes the HEAD pane (scratch=" .. s .. ")")
+  ck(count_diff() == 0, "4b no windows in diff after leaving split")
+  ck(split._session == nil, "4c session released")
 end
 
--- ── 5. inline → split otra vez: se re-crea sano ──
+-- ── 5. inline → split again: it is recreated healthy ──
 views.set(core, "split"); vim.wait(400)
 do
   local n, s = count_wins()
-  ck(n == 1 and s == 1, "5 re-entrar a split tras inline (normal=" .. n .. " scratch=" .. s .. ")")
-  ck(count_diff() == 2, "5b 2 columnas en diff de nuevo")
+  ck(n == 1 and s == 1, "5 re-entering split after inline (normal=" .. n .. " scratch=" .. s .. ")")
+  ck(count_diff() == 2, "5b 2 columns in diff again")
 end
 
--- ── 6. split → normal: teardown, restaura ventana única ──
+-- ── 6. split → normal: teardown, restores the single window ──
 views.set(core, "normal"); vim.wait(400)
 do
   local n, s = count_wins()
-  ck(s == 0 and count_diff() == 0, "6 normal limpia split (scratch=" .. s .. " diff=" .. count_diff() .. ")")
+  ck(s == 0 and count_diff() == 0, "6 normal cleans up split (scratch=" .. s .. " diff=" .. count_diff() .. ")")
 end
 
--- ── 7. Ciclar rv repetidamente no deja basura (normal→inline→split→normal x2) ──
+-- ── 7. Cycling rv repeatedly leaves no garbage (normal→inline→split→normal x2) ──
 for i = 1, 2 do
   for _, m in ipairs({ "inline", "split", "normal" }) do
     views.set(core, m); vim.wait(250)
@@ -104,7 +104,7 @@ end
 do
   local n, s = count_wins()
   ck(n == 1 and s == 0 and count_diff() == 0,
-    "7 ciclado repetido termina limpio (normal=" .. n .. " scratch=" .. s .. " diff=" .. count_diff() .. ")")
+    "7 repeated cycling ends clean (normal=" .. n .. " scratch=" .. s .. " diff=" .. count_diff() .. ")")
 end
 
 log("TOTAL fails=" .. fails)

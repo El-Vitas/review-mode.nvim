@@ -18,7 +18,7 @@ describe("features.export.commands", function()
     pcall(vim.api.nvim_del_user_command, "Rya")
   end)
 
-  it("registra comandos y alias", function()
+  it("registers commands and aliases", function()
     commands.setup(core, {})
     local cmds = vim.api.nvim_get_commands({})
     assert.is_truthy(cmds["ReviewYankFile"])
@@ -27,10 +27,10 @@ describe("features.export.commands", function()
     assert.is_truthy(cmds["Rya"])
   end)
 
-  it(":ReviewYankFile copia solo los comentarios del archivo actual al registro +", function()
+  it(":ReviewYankFile copies only the current file's comments to the + register", function()
     commands.setup(core, {})
-    state.add({ path = "a.ts", lnum = 1, text = "de a" })
-    state.add({ path = "b.ts", lnum = 1, text = "de b" })
+    state.add({ path = "a.ts", lnum = 1, text = "from a" })
+    state.add({ path = "b.ts", lnum = 1, text = "from b" })
 
     local buf = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_buf_set_name(buf, tmp .. "/a.ts")
@@ -38,45 +38,45 @@ describe("features.export.commands", function()
 
     vim.cmd("ReviewYankFile")
     local reg = vim.fn.getreg("+")
-    assert.is_truthy(reg:match("de a"))
-    assert.is_falsy(reg:match("de b"))
+    assert.is_truthy(reg:match("from a"))
+    assert.is_falsy(reg:match("from b"))
   end)
 
-  it(":ReviewYankAll copia todos los comentarios al registro +", function()
+  it(":ReviewYankAll copies all comments to the + register", function()
     commands.setup(core, {})
-    state.add({ path = "a.ts", lnum = 1, text = "de a" })
-    state.add({ path = "b.ts", lnum = 1, text = "de b" })
+    state.add({ path = "a.ts", lnum = 1, text = "from a" })
+    state.add({ path = "b.ts", lnum = 1, text = "from b" })
 
     vim.cmd("ReviewYankAll")
     local reg = vim.fn.getreg("+")
-    assert.is_truthy(reg:match("de a"))
-    assert.is_truthy(reg:match("de b"))
+    assert.is_truthy(reg:match("from a"))
+    assert.is_truthy(reg:match("from b"))
   end)
 
-  it(":ReviewYankFile con buffer fuera del repo no rompe y no toca el registro", function()
+  it(":ReviewYankFile with a buffer outside the repo does not break and leaves the register alone", function()
     commands.setup(core, {})
-    state.add({ path = "a.ts", lnum = 1, text = "de a" })
+    state.add({ path = "a.ts", lnum = 1, text = "from a" })
 
     local buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_name(buf, "/otro/lugar/x.ts")
+    vim.api.nvim_buf_set_name(buf, "/some/other/x.ts")
     vim.api.nvim_set_current_buf(buf)
 
-    vim.fn.setreg("+", "sin-tocar")
+    vim.fn.setreg("+", "untouched")
     assert.has_no.errors(function() vim.cmd("ReviewYankFile") end)
-    assert.are.equal("sin-tocar", vim.fn.getreg("+"))
+    assert.are.equal("untouched", vim.fn.getreg("+"))
   end)
 
-  it(":ReviewYankAll con lista vacía notifica y no rompe", function()
+  it(":ReviewYankAll with an empty list notifies and does not break", function()
     commands.setup(core, {})
-    vim.fn.setreg("+", "sin-tocar")
+    vim.fn.setreg("+", "untouched")
     assert.has_no.errors(function() vim.cmd("ReviewYankAll") end)
-    assert.are.equal("sin-tocar", vim.fn.getreg("+"))
+    assert.are.equal("untouched", vim.fn.getreg("+"))
   end)
 
-  it("respeta opts.leader en los keymaps", function()
+  it("respects opts.leader in the keymaps", function()
     commands.setup(core, { leader = "<leader>z" })
-    -- Neovim expande "<leader>" al valor de g:mapleader (default "\\") al registrar
-    -- el mapeo, así que nvim_get_keymap devuelve el lhs ya expandido, no el literal.
+    -- Neovim expands "<leader>" to the value of g:mapleader (default "\\") when
+    -- registering the mapping, so nvim_get_keymap returns the already-expanded lhs, not the literal.
     local mapleader = vim.g.mapleader or "\\"
     local expected_f = mapleader .. "zyf"
     local expected_a = mapleader .. "zya"

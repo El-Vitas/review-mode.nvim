@@ -1,6 +1,6 @@
--- Verifica que UN solo click expande una carpeta NUNCA-abierta (hijos aún no
--- cargados) — el caso que necesitaba 2 clicks. Simula el LeftRelease con la
--- MISMA lógica del mapping real y comprueba is_expanded() tras 1 click.
+-- Verifies that a SINGLE click expands a NEVER-opened folder (children not yet
+-- loaded) — the case that used to need 2 clicks. Simulates the LeftRelease with
+-- the SAME logic as the real mapping and checks is_expanded() after 1 click.
 local R = assert(os.getenv("REVIEW_E2E_DIR"))
 pcall(vim.api.nvim_del_augroup_by_name, "NeoTreeAutoClose")
 local _of = os.getenv("REVIEW_E2E_OUT")
@@ -14,9 +14,9 @@ vim.cmd("Neotree filesystem right dir=" .. R); vim.wait(800)
 
 local mgr = require("neo-tree.sources.manager")
 local st = mgr.get_state("filesystem")
-ck(st ~= nil and st.tree ~= nil, "0 hay árbol filesystem")
+ck(st ~= nil and st.tree ~= nil, "0 there is a filesystem tree")
 
--- Buscar una carpeta COLAPSADA (nunca abierta) escaneando las líneas visibles.
+-- Find a COLLAPSED folder (never opened) by scanning the visible lines.
 local function find_collapsed_dir()
   for i = 1, vim.api.nvim_buf_line_count(st.bufnr) do
     local nd = st.tree:get_node(i)
@@ -25,43 +25,43 @@ local function find_collapsed_dir()
 end
 
 local target = find_collapsed_dir()
-ck(target ~= nil, "1 encontré una carpeta colapsada: " .. (target and target.name or "?"))
+ck(target ~= nil, "1 found a collapsed folder: " .. (target and target.name or "?"))
 if not target then log("TOTAL fails=" .. fails); log("__DONE__"); vim.cmd("qa!"); return end
 
--- Poner el cursor en la línea de esa carpeta (como haría el LeftMouse).
+-- Put the cursor on that folder's line (as LeftMouse would).
 local line
 for i = 1, vim.api.nvim_buf_line_count(st.bufnr) do
   local nd = st.tree:get_node(i)
   if nd and nd:get_id() == target:get_id() then line = i; break end
 end
-ck(line ~= nil, "2 ubiqué su línea en el buffer: " .. tostring(line))
+ck(line ~= nil, "2 located its line in the buffer: " .. tostring(line))
 
 local ntwin = st.winid
 vim.api.nvim_set_current_win(ntwin)
 vim.api.nvim_win_set_cursor(ntwin, { line, 0 })
-ck(not target:is_expanded(), "3 arranca COLAPSADA")
+ck(not target:is_expanded(), "3 starts COLLAPSED")
 
--- Ejecutar EXACTAMENTE lo que hace el mapping (open de la fuente).
+-- Run EXACTLY what the mapping does (the source's open).
 local cmds = require("neo-tree.sources.filesystem.commands")
 cmds.open(st)
 vim.wait(500)
 
--- Re-leer el nodo (el árbol se redibuja).
+-- Re-read the node (the tree is redrawn).
 st = mgr.get_state("filesystem")
 local after = st.tree:get_node(line)
--- puede haber cambiado el nodo en esa línea; buscar por id.
+-- the node on that line may have changed; look it up by id.
 local function node_by_id(id)
   for i = 1, vim.api.nvim_buf_line_count(st.bufnr) do
     local nd = st.tree:get_node(i); if nd and nd:get_id() == id then return nd end
   end
 end
 local reloaded = node_by_id(target:get_id())
-ck(reloaded ~= nil and reloaded:is_expanded(), "4 UN click la EXPANDIÓ (source.open con toggle_directory)")
+ck(reloaded ~= nil and reloaded:is_expanded(), "4 ONE click EXPANDED it (source.open with toggle_directory)")
 
--- Contraprueba: common.open SIN toggle_directory NO la expande al 1er intento.
--- (colapsar primero, luego probar common)
+-- Counter-check: common.open WITHOUT toggle_directory does NOT expand it on the 1st try.
+-- (collapse first, then try common)
 if reloaded and reloaded:is_expanded() then
-  require("neo-tree.sources.common.commands").toggle_node(st, nil) -- colapsa
+  require("neo-tree.sources.common.commands").toggle_node(st, nil) -- collapses
   vim.wait(200)
 end
 
