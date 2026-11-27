@@ -1,9 +1,9 @@
--- Alias en minúscula para los comandos de review.nvim (centralizado).
--- Cada feature registra su comando capitalizado en su propio setup.
+-- Lowercase aliases for the review.nvim commands (centralized).
+-- Each feature registers its capitalized command in its own setup.
 --
--- Solo expanden cuando la línea de comandos es EXACTAMENTE el alias. Un
--- `cnoreabbrev` simple expande en cualquier palabra: `:%s/rl/x/g` pasaba a
--- `:%s/Rl/x/g` y `:g/rt/d` borraba las líneas con "Rt".
+-- They only expand when the command line is EXACTLY the alias. A plain
+-- `cnoreabbrev` expands on any word: `:%s/rl/x/g` turned into
+-- `:%s/Rl/x/g` and `:g/rt/d` deleted the lines containing "Rt".
 local aliases = {
   rcm = "Rcm", rl = "Rl", rlf = "Rlf", rt = "Rt", rp = "Rp", rpa = "Rpa", rpc = "Rpc",
   ryf = "Ryf", rya = "Rya", rv = "Rv", rvn = "Rvn", rvi = "Rvi", rvs = "Rvs", rs = "Rs",

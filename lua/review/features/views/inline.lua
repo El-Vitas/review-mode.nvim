@@ -2,10 +2,10 @@ local diff = require("review.features.views.diff")
 
 local M = {}
 
--- Cache del contenido HEAD por buffer: `git show HEAD` es un subproceso caro y
--- render() se llama en CADA tecla (TextChangedI). El HEAD no cambia mientras
--- editas, así que lo corremos una sola vez por buffer. Se invalida al recargar
--- el archivo (BufReadPost, ver init.lua) o con M.invalidate(bufnr).
+-- Cache of the HEAD content per buffer: `git show HEAD` is an expensive subprocess and
+-- render() is called on EVERY keystroke (TextChangedI). HEAD does not change while
+-- you edit, so we run it only once per buffer. It is invalidated when the
+-- file is reloaded (BufReadPost, see init.lua) or with M.invalidate(bufnr).
 M._head_cache = {}
 
 function M.invalidate(bufnr)
@@ -18,7 +18,7 @@ local function head_for(core, bufnr, relpath, root)
     if c == false then return nil end
     return c
   end
-  -- base_lines: un archivo nuevo respecto de la base se pinta entero como agregado.
+  -- base_lines: a file that is new relative to the base is painted entirely as added.
   local head = core.git.base_lines(relpath, root)
   M._head_cache[bufnr] = head or false
   return head
@@ -28,19 +28,19 @@ function M.clear(core, bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, core.ns.views, 0, -1)
 end
 
--- Ancho para rellenar la barra de líneas borradas (fondo rojo de punta a punta,
--- como GitHub). Usa el ancho de la ventana que muestra el buffer; 0 si no hay.
+-- Width to pad the deleted-lines bar (red background edge to edge,
+-- like GitHub). Uses the width of the window showing the buffer; 0 if there is none.
 local function win_width(bufnr)
   local winid = vim.fn.bufwinid(bufnr)
   if winid == -1 then return 0 end
   return vim.api.nvim_win_get_width(winid)
 end
 
---- Pinta decoraciones inline de diff sobre bufnr, comparando el contenido HEAD
---- contra el contenido ACTUAL del buffer (en memoria, refleja cambios sin
---- guardar). Muestra las líneas borradas como líneas virtuales rojas encima de
---- su posición y las agregadas resaltadas en verde (vista unificada, estilo
---- GitHub "inline"). No-op si el archivo no pertenece al repo o no tiene HEAD.
+--- Paints inline diff decorations on bufnr, comparing the HEAD content
+--- against the CURRENT content of the buffer (in memory, reflects unsaved
+--- changes). Shows deleted lines as red virtual lines above
+--- their position and added lines highlighted in green (unified view, GitHub
+--- "inline" style). No-op if the file does not belong to the repo or has no HEAD.
 function M.render(core, bufnr)
   M.clear(core, bufnr)
 
@@ -60,9 +60,9 @@ function M.render(core, bufnr)
   local last = vim.api.nvim_buf_line_count(bufnr)
 
   for _, h in ipairs(hunks) do
-    -- Líneas borradas: líneas virtuales rojas ancladas encima de la posición
-    -- donde estaban (la primera línea nueva del hunk). Un borrado puro al final
-    -- del archivo no tiene línea nueva debajo: va DEBAJO de la última línea.
+    -- Deleted lines: red virtual lines anchored above the position
+    -- where they were (the first new line of the hunk). A pure deletion at the end
+    -- of the file has no new line below it: it goes BELOW the last line.
     if #h.del_lines > 0 then
       local past_end = h.new_start > last
       local anchor = past_end and math.max(last - 1, 0) or math.max(h.new_start - 1, 0)
@@ -80,7 +80,7 @@ function M.render(core, bufnr)
       })
     end
 
-    -- Líneas agregadas: resaltar toda la línea real en verde.
+    -- Added lines: highlight the whole real line in green.
     for _, lnum in ipairs(h.add_lnums) do
       local row = lnum - 1
       if row >= 0 and row < last then

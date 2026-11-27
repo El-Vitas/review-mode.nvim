@@ -1,10 +1,10 @@
--- Gutter con corchetes ANIDADOS: reemplaza el statuscolumn de las ventanas que
--- muestran archivos del repo para dibujar, línea por línea, un corchete por CADA
--- comentario que la cubre — apilados según anidación y coloreados por comentario
--- (┌ arriba, │ medio, └ abajo, ▌ una línea). Preserva signos (gitsigns) y número.
+-- Gutter with NESTED brackets: replaces the statuscolumn of the windows that
+-- show repo files to draw, line by line, one bracket for EACH
+-- comment that covers it — stacked by nesting and colored per comment
+-- (┌ top, │ middle, └ bottom, ▌ single line). Preserves signs (gitsigns) and number.
 --
--- La columna de signos solo admite 1 signo por línea, por eso el anidado y la
--- continuidad del │ (cuando hay comentarios solapados) solo se logran así.
+-- The sign column only supports 1 sign per line, so the nesting and the
+-- continuity of │ (when comments overlap) can only be achieved this way.
 local render = require("review.features.comments.render")
 
 local M = {}
@@ -12,12 +12,12 @@ local M = {}
 local PALETTE_N = 6
 
 M._core = nil
-M._prev = {}   -- win -> statuscolumn previo (para restaurar)
-M._gen = 0     -- generación; sube al cambiar comentarios (invalida cache)
+M._prev = {}   -- win -> previous statuscolumn (to restore)
+M._gen = 0     -- generation; goes up when comments change (invalidates cache)
 M._cache = {}  -- buf -> { gen, color = {id->idx}, ranked = comment[] }
 
--- Ranking estable por línea (para asignar color) + mapa id->color. Cacheado por
--- (buf, generación).
+-- Stable ranking per line (to assign color) + id->color map. Cached per
+-- (buf, generation).
 local function ranked_for(buf)
   local cached = M._cache[buf]
   if cached and cached.gen == M._gen then return cached end
@@ -26,9 +26,9 @@ local function ranked_for(buf)
   local rel = core and core.git.rel_path(buf)
   local ranked, color = {}, {}
   if rel then
-    -- Las respuestas (reply_to) no dibujan corchete propio: viven en el hilo.
+    -- Replies (reply_to) do not draw their own bracket: they live in the thread.
     for _, c in ipairs(core.state.for_path(rel)) do
-      -- file_level no tiene línea → no dibuja corchete en el gutter.
+      -- file_level has no line → it draws no bracket in the gutter.
       if not c.reply_to and not c.file_level then ranked[#ranked + 1] = c end
     end
     table.sort(ranked, function(a, b) return (a.lnum or 0) < (b.lnum or 0) end)
@@ -39,16 +39,16 @@ local function ranked_for(buf)
   return entry
 end
 
---- String de statusline con los corchetes de la línea `lnum` del buffer `buf`.
---- `cont`=true fuerza el trazo de continuación `│` (para líneas envueltas/wrap),
---- para que el corchete quede CONTINUO y no repita `┌`/`└` en cada wrap.
+--- Statusline string with the brackets of line `lnum` of buffer `buf`.
+--- `cont`=true forces the continuation stroke `│` (for wrapped lines),
+--- so the bracket stays CONTINUOUS and does not repeat `┌`/`└` on each wrap.
 function M.brackets(buf, lnum, cont)
-  if render.hidden then return "" end -- respetar el toggle ocultar/mostrar
+  if render.hidden then return "" end -- respect the hide/show toggle
   local entry = ranked_for(buf)
   if #entry.ranked == 0 then return "" end
 
-  -- Comentarios que cubren la línea, ordenados outer-first (lo asc, span desc)
-  -- para que el anidado quede de afuera hacia adentro (izq -> der).
+  -- Comments covering the line, sorted outer-first (lo asc, span desc)
+  -- so the nesting goes from outside to inside (left -> right).
   local cov = {}
   for _, c in ipairs(entry.ranked) do
     local lo = math.min(c.lnum, c.end_lnum or c.lnum)
@@ -67,7 +67,7 @@ function M.brackets(buf, lnum, cont)
   for _, e in ipairs(cov) do
     local ch
     if cont then
-      ch = "│" -- líneas envueltas: trazo continuo, sin esquinas
+      ch = "│" -- wrapped lines: continuous stroke, no corners
     elseif e.lo == e.hi then
       ch = "▌"
     elseif lnum == e.lo then
@@ -90,15 +90,15 @@ function M.brackets(buf, lnum, cont)
   return table.concat(parts) .. "%*"
 end
 
---- statuscolumn: fold + signos (gitsigns) + corchetes + número (derecha).
+--- statuscolumn: fold + signs (gitsigns) + brackets + number (right).
 function M.render()
   local win = vim.g.statusline_winid
   local ok, buf = pcall(vim.api.nvim_win_get_buf, win)
   if not ok then return "" end
 
-  -- v:virtnum: 0 = línea real; >0 = parte envuelta (wrap); <0 = línea virtual
-  -- (nuestro badge/peek). En líneas virtuales NO dibujamos corchete (evita los
-  -- fragmentos `┌`/`│` rotos sobre el badge/peek); en wraps, trazo continuo.
+  -- v:virtnum: 0 = real line; >0 = wrapped part (wrap); <0 = virtual line
+  -- (our badge/peek). On virtual lines we do NOT draw a bracket (avoids broken
+  -- `┌`/`│` fragments over the badge/peek); on wraps, a continuous stroke.
   local virt = vim.v.virtnum
   local brackets
   if virt < 0 then
@@ -128,7 +128,7 @@ local OURS = "%!v:lua.ReviewStatusCol()"
 
 local function enable(win)
   if not vim.api.nvim_win_is_valid(win) then return end
-  if vim.wo[win].statuscolumn == OURS then return end -- ya activo (no guardar el nuestro como prev)
+  if vim.wo[win].statuscolumn == OURS then return end -- already active (do not save ours as prev)
   if M._prev[win] == nil then M._prev[win] = vim.wo[win].statuscolumn end
   vim.wo[win].statuscolumn = OURS
 end
@@ -144,17 +144,17 @@ function M.setup(core)
   M._core = core
 
   local grp = vim.api.nvim_create_augroup("ReviewGutter", { clear = true })
-  -- Activa el gutter propio SOLO en ventanas con archivos normales del repo.
-  -- Los buffers especiales (neo-tree, terminal, quickfix, prompts…) se ignoran
-  -- por completo: no se les toca el statuscolumn ni se corre git, para no
-  -- interferir con esos plugins (p. ej. el toggle de neo-tree).
+  -- Enables our own gutter ONLY in windows with normal repo files.
+  -- Special buffers (neo-tree, terminal, quickfix, prompts…) are ignored
+  -- entirely: their statuscolumn is not touched and git is not run, so as not to
+  -- interfere with those plugins (e.g. the neo-tree toggle).
   vim.api.nvim_create_autocmd({ "BufWinEnter", "WinEnter" }, {
     group = grp,
     callback = function(a)
       local buf = a.buf
       local win = vim.api.nvim_get_current_win()
       local isfile = false
-      if vim.bo[buf].buftype == "" then -- solo archivos reales (no neo-tree/term/qf)
+      if vim.bo[buf].buftype == "" then -- only real files (not neo-tree/term/qf)
         local ok, rel = pcall(core.git.rel_path, buf)
         isfile = ok and rel ~= nil
       end
@@ -162,9 +162,9 @@ function M.setup(core)
         pcall(enable, win)
       else
         pcall(disable, win)
-        -- Los splits heredan window-locals: si esta ventana especial (neo-tree,
-        -- etc.) quedó con NUESTRO statuscolumn heredado, limpiarlo para no
-        -- correr nuestra función ahí ni interferir con ese plugin.
+        -- Splits inherit window-locals: if this special window (neo-tree,
+        -- etc.) ended up with OUR statuscolumn inherited, clear it so we do not
+        -- run our function there or interfere with that plugin.
         if vim.api.nvim_win_is_valid(win) and vim.wo[win].statuscolumn == OURS then
           vim.wo[win].statuscolumn = ""
         end
@@ -172,8 +172,8 @@ function M.setup(core)
     end,
   })
 
-  -- Liberar entradas de cache/estado al cerrar buffers/ventanas (evita que
-  -- crezcan con cada archivo/split abierto).
+  -- Release cache/state entries when closing buffers/windows (keeps them from
+  -- growing with every opened file/split).
   vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
     group = grp,
     callback = function(a) M._cache[a.buf] = nil end,
@@ -186,7 +186,7 @@ function M.setup(core)
     end,
   })
 
-  -- Al cambiar comentarios, invalidar cache y redibujar.
+  -- When comments change, invalidate the cache and redraw.
   if core.events then
     core.events.on("comments:changed", function()
       M._gen = M._gen + 1

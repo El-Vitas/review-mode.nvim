@@ -1,10 +1,10 @@
 local M = {}
 
--- Cache de la raíz por cwd (git rev-parse es subproceso; el cwd casi no cambia).
+-- Per-cwd root cache (git rev-parse is a subprocess; the cwd rarely changes).
 local _root_by_cwd = {}
 function M.root_fn()
   local cwd = vim.uv.cwd()
-  if not cwd then return nil end -- el cwd fue borrado
+  if not cwd then return nil end -- the cwd was deleted
   local cached = _root_by_cwd[cwd]
   if cached ~= nil then return cached or nil end
   local out = vim.fn.systemlist({ "git", "-C", cwd, "rev-parse", "--show-toplevel" })
@@ -13,10 +13,10 @@ function M.root_fn()
   return root or nil
 end
 
---- Limpia el cache de raíces (por si cambia el layout del repo/worktree).
+--- Clears the root cache (in case the repo/worktree layout changes).
 function M.clear_root_cache() _root_by_cwd = {} end
 
---- Ruta de comments.json del repo `root` (default: el del cwd).
+--- Path of the comments.json of repo `root` (default: the cwd's).
 --- @param root string|nil
 function M.path(root)
   root = root or M.root_fn()
@@ -26,9 +26,9 @@ end
 
 local function empty() return { version = 1, comments = {} } end
 
---- Escribe `tbl` como JSON de forma ATÓMICA: a un `.tmp` y después rename.
---- `io.open(p, "w")` trunca antes de escribir, así que un corte a mitad dejaba
---- el archivo vacío o cortado, y la carga siguiente lo tomaba por "sin datos".
+--- Writes `tbl` as JSON ATOMICALLY: to a `.tmp` and then rename.
+--- `io.open(p, "w")` truncates before writing, so an interruption midway left
+--- the file empty or cut off, and the next load took it for "no data".
 local function write_json(p, tbl)
   vim.fn.mkdir(vim.fn.fnamemodify(p, ":h"), "p")
   local tmp = p .. ".tmp"
@@ -43,7 +43,7 @@ local function write_json(p, tbl)
   return vim.uv.fs_rename(tmp, p) == true
 end
 
---- @param root string|nil  repo cuyo comments.json se lee (default: el del cwd)
+--- @param root string|nil  repo whose comments.json is read (default: the cwd's)
 function M.load(root)
   local p = M.path(root)
   if not p then return empty() end
@@ -52,8 +52,8 @@ function M.load(root)
   local content = fd:read("*a"); fd:close()
   local ok, data = pcall(vim.json.decode, content, { luanil = { object = true, array = true } })
   if not ok or type(data) ~= "table" then
-    -- Corrupto: apartarlo en vez de tratarlo como vacío. Si no, el próximo
-    -- guardado lo pisaba y los comentarios se perdían sin rastro.
+    -- Corrupt: set it aside instead of treating it as empty. Otherwise the next
+    -- save would overwrite it and the comments would be lost without a trace.
     local aside = p .. ".corrupt-" .. os.date("%Y%m%d-%H%M%S")
     vim.uv.fs_rename(p, aside)
     vim.notify("review.nvim: comments.json is unreadable, moved to " .. aside, vim.log.levels.ERROR)
@@ -64,14 +64,14 @@ function M.load(root)
   return data
 end
 
---- @param root string|nil  repo donde se guarda (default: el del cwd)
+--- @param root string|nil  repo where it is saved (default: the cwd's)
 function M.save(data, root)
   local p = M.path(root)
   if not p then return false end
   return write_json(p, data)
 end
 
--- Base de comparación persistida por repo (junto a comments.json).
+-- Comparison base persisted per repo (next to comments.json).
 local function base_path()
   local root = M.root_fn()
   if not root then return nil end
@@ -93,7 +93,7 @@ function M.load_base()
   local raw = (fd:read("*a") or ""):gsub("%s+$", "")
   fd:close()
   if raw == "" then return nil end
-  -- Compat: formato viejo era el ref pelado (texto plano, no JSON).
+  -- Compat: the old format was the bare ref (plain text, not JSON).
   local ok, data = pcall(vim.json.decode, raw)
   if ok and type(data) == "table" and data.ref then
     return data.ref, data.label

@@ -2,9 +2,9 @@ local rpc = require("review.features.agent.rpc")
 local watch = require("review.features.agent.watch")
 
 local M = {}
-M._on = false -- estado runtime (encendido/apagado)
+M._on = false -- runtime state (on/off)
 
--- Bridge RPC expuesto al agente (se setea al encender, se limpia al apagar).
+-- RPC bridge exposed to the agent (set when turned on, cleared when turned off).
 local function build_bridge(core)
   return {
     list = function(filter_json) return rpc.list(core, filter_json) end,
@@ -27,9 +27,9 @@ function M.setup(core, opts)
   opts = opts or {}
   local leader = opts.leader or "<leader>r"
 
-  -- El watcher re-ancla comentarios cuando el agente edita el archivo en disco.
-  -- Eso SOLO tiene sentido en archivos con comentarios: vigilar cada buffer sería
-  -- caro e inútil. Vigilamos únicamente buffers cuyo archivo tiene ≥1 comentario.
+  -- The watcher re-anchors comments when the agent edits the file on disk.
+  -- That ONLY makes sense for files with comments: watching every buffer would be
+  -- expensive and useless. We only watch buffers whose file has ≥1 comment.
   local function file_has_comments(bufnr)
     if not vim.api.nvim_buf_is_valid(bufnr) or vim.bo[bufnr].buftype ~= "" then return false end
     local rel = core.git.rel_path(bufnr)
@@ -48,8 +48,8 @@ function M.setup(core, opts)
     end
   end
 
-  -- Autocmds SIEMPRE registrados; sus callbacks son no-op cuando el agente está
-  -- apagado (solo chequean el booleano M._on). Así prender/apagar no recrea nada.
+  -- Autocmds are ALWAYS registered; their callbacks are no-ops when the agent is
+  -- off (they only check the M._on boolean). That way turning on/off recreates nothing.
   local group = vim.api.nvim_create_augroup("ReviewAgentWatch", { clear = true })
   vim.api.nvim_create_autocmd({ "BufReadPost", "BufWinEnter" }, {
     group = group,
@@ -59,17 +59,17 @@ function M.setup(core, opts)
     group = group,
     callback = function(a) watch.detach(a.buf) end,
   })
-  -- Al cambiar comentarios: re-armar watchers (archivo con comentarios nuevos se
-  -- empieza a vigilar; sin comentarios se deja de vigilar). Guardado por M._on.
+  -- When comments change: re-arm watchers (a file with new comments starts
+  -- being watched; one without comments stops being watched). Guarded by M._on.
   core.events.on("comments:changed", vim.schedule_wrap(sync_all))
 
-  -- ── Encender / apagar en caliente (sin reiniciar) ─────────────────────────
+  -- ── Turn on / off live (without restarting) ───────────────────────────────
   function M.enable()
     local was_on = M._on
     M._on = true
-    _G.ReviewAgent = build_bridge(core) -- siempre (re)establecer el bridge RPC
+    _G.ReviewAgent = build_bridge(core) -- always (re)establish the RPC bridge
     if not was_on then
-      vim.schedule(sync_all) -- engancha watchers de los archivos-con-comentarios
+      vim.schedule(sync_all) -- hook watchers onto the files-with-comments
       vim.notify("review: agent ON (RPC socket " .. tostring(vim.v.servername) .. ")", vim.log.levels.INFO)
     end
   end
@@ -77,7 +77,7 @@ function M.setup(core, opts)
   function M.disable()
     if not M._on then return end
     M._on = false
-    watch.detach_all() -- cierra todos los fs_event + timers
+    watch.detach_all() -- closes all fs_events + timers
     _G.ReviewAgent = nil
     vim.notify("review: agent OFF", vim.log.levels.INFO)
   end
@@ -98,16 +98,16 @@ function M.setup(core, opts)
   end, { nargs = "?", complete = function() return { "on", "off", "toggle" } end })
   vim.keymap.set("n", leader .. "a", function() M.toggle() end, { desc = "Review: toggle agent (RPC + watchers)" })
 
-  -- Fallback manual: fuerza el patch del buffer actual (caso raro de conflicto
-  -- por cambios sin guardar). Útil solo con el agente encendido.
+  -- Manual fallback: forces the patch of the current buffer (rare case of a
+  -- conflict due to unsaved changes). Only useful with the agent on.
   vim.api.nvim_create_user_command("ReviewReload", function()
     local b = vim.api.nvim_get_current_buf()
     if vim.bo[b].modified then vim.bo[b].modified = false end
     require("review.features.agent.reconcile").patch(core, b)
   end, {})
 
-  -- Estado inicial: apagado por defecto. Auto-enciende solo si se pide
-  -- explícitamente (autostart, o enabled=true para compat con tests/otros setups).
+  -- Initial state: off by default. It only turns on automatically if explicitly
+  -- requested (autostart, or enabled=true for compat with tests/other setups).
   if opts.autostart or opts.enabled then M.enable() end
 end
 

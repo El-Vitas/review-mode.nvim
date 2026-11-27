@@ -2,7 +2,7 @@ local render = require("review.features.comments.render")
 
 local M = {}
 
--- Extmarks temporales del rango de un comentario que se está escribiendo.
+-- Temporary extmarks for the range of a comment that is being written.
 local pending_ns = vim.api.nvim_create_namespace("review_pending_comment")
 
 local function clamp(bufnr, lnum)
@@ -13,11 +13,11 @@ local function clamp(bufnr, lnum)
   return lnum
 end
 
--- El comentario MÁS ESPECÍFICO que cubre `lnum`: el de rango más chico y, ante
--- empate, el que empieza más abajo. Es el mismo que muestra el peek, así que
--- editar, resolver o borrar actúa sobre el comentario que se está viendo aunque
--- haya otros solapados. Respuestas y comentarios de ARCHIVO no son objetivo
--- directo del cursor por línea (los file_level ni siquiera tienen lnum).
+-- The MOST SPECIFIC comment covering `lnum`: the one with the smallest range and, on a
+-- tie, the one that starts lower. It is the same one the peek shows, so
+-- editing, resolving or deleting acts on the comment being viewed even if
+-- others overlap. Replies and FILE comments are not a direct target
+-- of the per-line cursor (file_level ones do not even have an lnum).
 local function find_at(core, rel, lnum)
   local best, best_span
   for _, c in ipairs(core.state.for_path(rel)) do
@@ -39,8 +39,8 @@ local function is_last_line(bufnr, lnum)
   return lnum >= vim.api.nvim_buf_line_count(bufnr)
 end
 
--- Comentario de ARCHIVO sobre el que actuar: el último NO resuelto; si están
--- todos resueltos, el último. nil si no hay ninguno. (Para varios, usar la lista.)
+-- FILE comment to act on: the last UNRESOLVED one; if all are
+-- resolved, the last one. nil if there is none. (For several, use the list.)
 local function file_target(core, rel)
   local last, last_open
   for _, c in ipairs(core.state.for_path(rel)) do
@@ -52,8 +52,8 @@ local function file_target(core, rel)
   return last_open or last
 end
 
--- El comentario a accionar desde el cursor: el de LÍNEA si lo hay; si no, y
--- estás en la última línea, el de ARCHIVO. Así no "molesta" a los de línea.
+-- The comment to act on from the cursor: the LINE one if there is one; otherwise, and
+-- if you are on the last line, the FILE one. That way it does not "bother" the line ones.
 local function target_at(core, rel, bufnr, lnum)
   local c = find_at(core, rel, lnum)
   if c then return c end
@@ -73,8 +73,8 @@ function M._add(core, bufnr, lnum, end_lnum, text)
     lnum, end_lnum = end_lnum, lnum
   end
 
-  -- Guardar el texto de la línea ancla: malla de seguridad para detectar
-  -- re-anclaje incierto (stale) tras un cambio de código en disco (roadmap §1.3).
+  -- Save the text of the anchor line: a safety net to detect an uncertain
+  -- re-anchor (stale) after a code change on disk (roadmap §1.3).
   local anchor_text = ""
   do
     local lines = vim.api.nvim_buf_get_lines(bufnr, lnum - 1, lnum, false)
@@ -115,8 +115,8 @@ function M._resolve_at(core, bufnr, lnum)
   return ok
 end
 
---- Actualiza el texto del comentario que cubre `lnum` (núcleo testeable).
---- @return boolean true si actualizó
+--- Updates the text of the comment covering `lnum` (testable core).
+--- @return boolean true if it updated
 function M._update_at(core, bufnr, lnum, text)
   local rel = core.git.rel_path(bufnr)
   if not rel then return false end
@@ -130,10 +130,10 @@ function M._update_at(core, bufnr, lnum, text)
   return ok
 end
 
---- Actualiza el texto del comentario `id`. Lo usan los popups de edición: el
---- comentario se elige al abrir el popup, y mientras se escribe pueden cambiar
---- las líneas (el agente edita el archivo) o aparecer otro comentario solapado.
---- @return boolean true si actualizó
+--- Updates the text of comment `id`. Used by the edit popups: the
+--- comment is chosen when the popup opens, and while typing the lines
+--- may change (the agent edits the file) or another overlapping comment may appear.
+--- @return boolean true if it updated
 function M._update_by_id(core, bufnr, id, text)
   if text == nil or vim.trim(text) == "" then return false end
   local ok = core.state.update(id, { text = text })
@@ -143,10 +143,10 @@ function M._update_by_id(core, bufnr, id, text)
   return true
 end
 
--- Popup de edición de texto multi-línea, reutilizado por add/edit. Arranca en
--- insert; Enter hace saltos de línea (comentario multi-línea, estilo GitHub);
--- se guarda con <CR> (normal) o <C-s>, se cancela con q o <C-c>. NUNCA se mapea
--- <Esc> a cancelar (así salir de insert no borra lo escrito).
+-- Multi-line text editing popup, reused by add/edit. Starts in
+-- insert; Enter inserts line breaks (multi-line comment, GitHub style);
+-- it is saved with <CR> (normal) or <C-s>, canceled with q or <C-c>. <Esc> is NEVER
+-- mapped to cancel (so leaving insert does not discard what was typed).
 local function open_popup(o)
   local Popup = require("nui.popup")
   local title = o.title or " Comment "
@@ -187,12 +187,12 @@ local function open_popup(o)
     popup:unmount()
   end
 
-  -- Enter en modo NORMAL envía (en insert, Enter hace salto de línea para
-  -- comentarios multi-línea). `q` en normal cancela.
+  -- Enter in NORMAL mode sends (in insert, Enter inserts a line break for
+  -- multi-line comments). `q` in normal cancels.
   popup:map("n", "<CR>", confirm, { noremap = true })
   popup:map("n", "q", cancel, { noremap = true })
 
-  -- Arrancar escribiendo (salvo edición, que conviene revisar antes).
+  -- Start typing right away (except when editing, where it is better to review first).
   if o.start_insert ~= false then
     vim.schedule(function() vim.cmd("startinsert") end)
   end
@@ -213,19 +213,19 @@ function M.add_here(core, opts)
     end_lnum = lnum
   end
 
-  local rango = (end_lnum ~= lnum)
+  local range_title = (end_lnum ~= lnum)
       and string.format(" Comment L%d-%d ", math.min(lnum, end_lnum), math.max(lnum, end_lnum))
       or string.format(" Comment L%d ", lnum)
 
-  -- El rango se ancla con extmarks mientras se escribe: si el archivo cambia
-  -- en el medio (el agente inserta líneas arriba), el comentario cae en la
-  -- línea correcta y no en el número viejo.
+  -- The range is anchored with extmarks while typing: if the file changes
+  -- in the meantime (the agent inserts lines above), the comment lands on the
+  -- correct line and not on the old number.
   local lo, hi = math.min(lnum, end_lnum), math.max(lnum, end_lnum)
-  vim.api.nvim_buf_clear_namespace(bufnr, pending_ns, 0, -1) -- restos de un popup cancelado
+  vim.api.nvim_buf_clear_namespace(bufnr, pending_ns, 0, -1) -- leftovers from a canceled popup
   local m_lo = vim.api.nvim_buf_set_extmark(bufnr, pending_ns, lo - 1, 0, {})
   local m_hi = vim.api.nvim_buf_set_extmark(bufnr, pending_ns, hi - 1, 0, {})
   open_popup({
-    title = rango,
+    title = range_title,
     on_save = function(text)
       if not vim.api.nvim_buf_is_valid(bufnr) then return end
       local p_lo = vim.api.nvim_buf_get_extmark_by_id(bufnr, pending_ns, m_lo, {})
@@ -237,8 +237,8 @@ function M.add_here(core, opts)
   })
 end
 
---- Núcleo testeable: agrega un comentario de ARCHIVO (file_level, sin línea).
---- @return table|nil el comentario creado
+--- Testable core: adds a FILE comment (file_level, no line).
+--- @return table|nil the created comment
 function M._add_file(core, bufnr, text)
   local rel = core.git.rel_path(bufnr)
   if not rel then return nil end
@@ -249,8 +249,8 @@ function M._add_file(core, bufnr, text)
   return c
 end
 
---- Abre el popup para dejar un comentario a nivel de ARCHIVO (aparece abajo del
---- todo). No depende de la línea del cursor.
+--- Opens the popup to leave a FILE-level comment (it appears at the very
+--- bottom). It does not depend on the cursor line.
 function M.add_file_here(core)
   local bufnr = vim.api.nvim_get_current_buf()
   if not core.git.rel_path(bufnr) then
@@ -263,8 +263,8 @@ function M.add_file_here(core)
   })
 end
 
---- Comentario sobre el que actuar desde el cursor del buffer actual, y el
---- buffer. Si no hay ninguno, avisa y devuelve nil.
+--- Comment to act on from the cursor of the current buffer, and the
+--- buffer. If there is none, it notifies and returns nil.
 --- @return integer|nil bufnr, table|nil comment
 local function target_here(core)
   local bufnr = vim.api.nvim_get_current_buf()
@@ -278,8 +278,8 @@ local function target_here(core)
   return bufnr, c
 end
 
---- Edita el comentario que cubre la línea actual: abre el popup pre-cargado con
---- su texto. Si no hay comentario en la línea, avisa y no hace nada.
+--- Edits the comment covering the current line: opens the popup pre-loaded with
+--- its text. If there is no comment on the line, it notifies and does nothing.
 function M.edit_here(core)
   local bufnr, c = target_here(core)
   if not c then return end
@@ -291,16 +291,16 @@ function M.edit_here(core)
   })
 end
 
--- Namespace de los extmarks de highlight DENTRO de la tarjeta flotante del peek.
+-- Namespace of the highlight extmarks INSIDE the peek's floating card.
 local peek_ns = vim.api.nvim_create_namespace("review_peek")
 
---- Compat: al cerrar/eliminar un buffer, cerrar la tarjeta del peek si estaba
---- abierta (no dejar el float colgado).
+--- Compat: when closing/deleting a buffer, close the peek card if it was
+--- open (do not leave the float dangling).
 function M.cleanup_buffer(_)
   if M.close_peek_float then M.close_peek_float() end
 end
 
--- Envuelve `text` por palabras a un ancho `w` (respeta saltos de línea propios).
+-- Wraps `text` by words to a width `w` (respects its own line breaks).
 local function wrap_text(text, w)
   local out = {}
   for _, para in ipairs(vim.split(text or "", "\n", { plain = true })) do
@@ -325,11 +325,11 @@ local function wrap_text(text, w)
   return out
 end
 
--- ── Peek FLOTANTE estilo tarjeta GitHub, DOS paneles apilados ───────────────
--- Panel de arriba = lo que dijiste tú (author=user); panel de abajo = lo que
--- indicó claude (author≠user). Cada panel scrollea INDEPENDIENTE y muestra un
--- scrollbar SOLO si su contenido desborda. Anclado a la línea del comentario
--- (no persigue el cursor). Footer con acciones. Cierra con q/Esc o al salir.
+-- ── FLOATING peek, GitHub card style, TWO stacked panes ─────────────────────
+-- Top pane = what you said (author=user); bottom pane = what
+-- claude said (author≠user). Each pane scrolls INDEPENDENTLY and shows a
+-- scrollbar ONLY if its content overflows. Anchored to the comment's line
+-- (it does not chase the cursor). Footer with actions. Closes with q/Esc or on leave.
 M._peek_wins = {}
 M._peek_id = nil
 
@@ -349,10 +349,10 @@ local function short_time(iso)
   return iso
 end
 
-local PEEK_FW = 72      -- ancho de los paneles
-local PEEK_PANE_MAX = 9 -- alto máximo por panel antes de scrollear
+local PEEK_FW = 72      -- width of the panes
+local PEEK_PANE_MAX = 9 -- max height per pane before scrolling
 
--- Líneas (+ highlight por línea) de un panel a partir de una lista de mensajes.
+-- Lines (+ per-line highlight) of a pane from a list of messages.
 local function pane_content(msgs, empty_txt)
   local ls, sp = {}, {}
   local function add(t, h) ls[#ls + 1] = t; sp[#sp + 1] = h end
@@ -369,7 +369,7 @@ local function pane_content(msgs, empty_txt)
   return ls, sp
 end
 
--- Dibuja el "thumb" del scrollbar de `pane_win` en `sb_buf` (h filas).
+-- Draws the scrollbar "thumb" of `pane_win` in `sb_buf` (h rows).
 local function draw_scrollbar(sb_buf, pane_win, total, h)
   if not vim.api.nvim_win_is_valid(pane_win) or not vim.api.nvim_buf_is_valid(sb_buf) then return end
   local info = vim.fn.getwininfo(pane_win)[1]
@@ -388,7 +388,7 @@ local function open_peek_float(core, origin_buf, c)
   M.close_peek_float()
   local thread = core.state.thread(c.id)
 
-  -- Separar: lo mío (user) vs lo de claude (agent/otros).
+  -- Split: mine (user) vs claude's (agent/others).
   local mine, theirs = {}, {}
   for _, m in ipairs(thread) do
     if m.author and m.author ~= "user" then theirs[#theirs + 1] = m else mine[#mine + 1] = m end
@@ -403,8 +403,8 @@ local function open_peek_float(core, origin_buf, c)
     range = "L" .. c.lnum
   end
 
-  -- UNA sola tarjeta: sección "user" + divisor + sección "claude". Robusto
-  -- (un solo flotante bien posicionado, sin apilar ventanas frágiles).
+  -- A SINGLE card: "user" section + divider + "claude" section. Robust
+  -- (one well-positioned float, without stacking fragile windows).
   local ls, sp = {}, {}
   local function add(t, h) ls[#ls + 1] = t; sp[#sp + 1] = h end
   local uls, usp = pane_content(mine, "(no user comment)")
@@ -426,7 +426,7 @@ local function open_peek_float(core, origin_buf, c)
 
   local total = #ls
   local height = math.min(total, 16)
-  -- CENTRADO en la pantalla (como el popup de escribir comentario).
+  -- CENTERED on the screen (like the comment-writing popup).
   local row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1)
   local col = math.max(0, math.floor((vim.o.columns - PEEK_FW) / 2))
   local win = vim.api.nvim_open_win(buf, true, {
@@ -449,7 +449,7 @@ local function open_peek_float(core, origin_buf, c)
   M._peek_wins = { win }
   M._peek_id = c.id
 
-  -- Scrollbar SOLO si el contenido total desborda el alto del float.
+  -- Scrollbar ONLY if the total content overflows the float's height.
   if total > height then
     local sbb = vim.api.nvim_create_buf(false, true)
     vim.bo[sbb].bufhidden = "wipe"
@@ -487,7 +487,7 @@ local function open_peek_float(core, origin_buf, c)
       on_save = function(text) M._update_by_id(core, origin_buf, c.id, text) end })
   end, km)
 
-  -- Cerrar al salir de la ventana del float.
+  -- Close when leaving the float's window.
   vim.api.nvim_create_autocmd("WinLeave", {
     buffer = buf,
     once = true,
@@ -495,13 +495,13 @@ local function open_peek_float(core, origin_buf, c)
   })
 end
 
---- TOGGLE del peek del comentario bajo el cursor. Abre UNA tarjeta FLOTANTE
---- centrada con el hilo. Solo puede haber un peek abierto: abrir otro cierra el
---- anterior (open_peek_float ya cierra el previo al inicio).
+--- TOGGLE of the peek for the comment under the cursor. Opens ONE centered
+--- FLOATING card with the thread. Only one peek can be open: opening another closes the
+--- previous one (open_peek_float already closes the previous one at the start).
 function M.peek_here(core)
   local bufnr, c = target_here(core)
   if not c then return end
-  -- toggle: si ya está abierto para este comentario, cerrar.
+  -- toggle: if it is already open for this comment, close it.
   if M._peek_id == c.id and #M._peek_wins > 0 then
     M.close_peek_float()
     return

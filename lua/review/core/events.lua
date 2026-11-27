@@ -15,8 +15,8 @@ function M.emit(name, payload)
   end
 end
 
--- Limpia todas las suscripciones. Necesario en tests para evitar fuga de
--- estado entre casos (los `subs` son module-local y persisten entre `it`).
+-- Clears all subscriptions. Needed in tests to avoid state leaking between
+-- cases (`subs` is module-local and persists across `it` blocks).
 function M._reset()
   subs = {}
 end

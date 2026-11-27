@@ -1,4 +1,4 @@
--- El core se ensambla acá. Cada submódulo se agrega en su Task.
+-- The core is assembled here. Each submodule is added in its own Task.
 local M = {
   registry = require("review.core.registry"),
   store = require("review.core.store"),
